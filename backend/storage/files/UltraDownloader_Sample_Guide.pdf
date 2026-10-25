@@ -1,0 +1,42 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 794 >>
+stream
+BT /F1 16 Tf 60 780 Td (UltraDownloader - Authorized Sample PDF) Tj ET
+BT /F1 11 Tf 60 750 Td (This PDF is served by the secure download endpoint:) Tj ET
+BT /F1 11 Tf 60 732 Td (GET /api/v1/files/download/<filename>?ticket=<signed-ticket>) Tj ET
+BT /F1 11 Tf 60 696 Td (It exists so the Download button can be verified end to end:) Tj ET
+BT /F1 11 Tf 60 678 Td (1. Clicking Download opens a real HTTP transfer.) Tj ET
+BT /F1 11 Tf 60 660 Td (2. Chrome lists it in Ctrl + J.) Tj ET
+BT /F1 11 Tf 60 642 Td (3. The saved file opens in any PDF reader.) Tj ET
+BT /F1 11 Tf 60 606 Td (Correct filename, MIME type \(application/pdf\) and Content-Length) Tj ET
+BT /F1 11 Tf 60 588 Td (are all taken from trusted server metadata.) Tj ET
+BT /F1 11 Tf 60 552 Td (Generated for UltraDownloader V10.0) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000247 00000 n 
+0000001092 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1162
+%%EOF

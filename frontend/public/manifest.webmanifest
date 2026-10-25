@@ -1,0 +1,26 @@
+{
+  "name": "UltraDownloader — Universal Video Player & Downloader",
+  "short_name": "UltraDownloader",
+  "description": "Watch online before downloading & download HD/4K video or MP3 from TeraBox, Social Media, Courses & 1,000+ platforms.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050914",
+  "theme_color": "#1D6FF2",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "share_target": {
+    "action": "/",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
+}

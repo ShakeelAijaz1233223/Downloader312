@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background-color: #ffffff;
+    color: #0f172a;
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background-color: #ffffff;
+    color: #0f172a;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+  }
+}
+
+.ud-card {
+  @apply bg-white border border-slate-200/90 rounded-2xl shadow-sm;
+}
+
+.ud-card-interactive {
+  @apply transition-all duration-150 hover:border-blue-400 hover:shadow-md;
+}
+
+.ud-text-primary {
+  @apply text-slate-900;
+}
+
+.ud-text-secondary {
+  @apply text-slate-700;
+}
+
+.ud-text-muted {
+  @apply text-slate-500;
+}
+
+/* Round-10 admin ads form inputs */
+.admin-input {
+  width: 100%;
+  border-radius: 0.75rem;
+  background: #080c15;
+  border: 1px solid #1e293b;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  color: #fff;
+  outline: none;
+}
+.admin-input:focus {
+  border-color: #10b981;
+}
+.admin-input::placeholder {
+  color: #475569;
+}

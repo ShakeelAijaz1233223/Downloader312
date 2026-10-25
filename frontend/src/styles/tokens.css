@@ -1,0 +1,12 @@
+:root {
+  --bg-page: #ffffff;
+  --bg-subtle: #f8fafc;
+  --bg-card: #ffffff;
+  --border-light: #e2e8f0;
+  --border-hover: #93c5fd;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --brand-primary: #2563eb;
+  --brand-hover: #1d4ed8;
+}
