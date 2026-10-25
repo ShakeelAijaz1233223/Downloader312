@@ -214,7 +214,7 @@ export function AlbumMixSearchPage() {
     <PageShell
       title="Live Video, Audio & Mix"
       highlight="Search Studio"
-      subtitle="Search public videos, music mixes, and university lectures live and save directly in 4K MP4 or 320kbps MP3."
+      subtitle="Search public videos, music mixes and university lectures live, then save the real MP4 quality or extract the audio track."
     >
       <form
         onSubmit={runSearch}
@@ -858,17 +858,18 @@ export function SettingsPage() {
                     Default Preferred Download Quality
                   </label>
                   <select
-                    value={form.defaultVideoQuality || '1080p'}
+                    value={form.defaultVideoQuality || 'auto'}
                     onChange={(e) =>
                       setForm({ ...form, defaultVideoQuality: e.target.value })
                     }
                     className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-900"
                   >
-                    <option value="2160p">2160p 4K Ultra HD</option>
-                    <option value="1440p">1440p 2K QHD</option>
+                    <option value="auto">Auto — best real quality for THIS video</option>
+                    <option value="2160p">2160p 4K Ultra HD (only if the source has it)</option>
+                    <option value="1440p">1440p 2K QHD (only if the source has it)</option>
                     <option value="1080p">1080p Full HD (Recommended)</option>
                     <option value="720p">720p HD Fast</option>
-                    <option value="320kbps">320kbps Pure MP3 Audio</option>
+                    <option value="audio">Audio only — best real MP3 / M4A track</option>
                   </select>
                 </div>
 

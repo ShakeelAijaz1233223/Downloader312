@@ -691,7 +691,8 @@ CREATE TABLE IF NOT EXISTS `visitor_sessions` (
 
 
 INSERT INTO `websites` VALUES ('site_main_clean', 'UltraDownloader Main Hub', 'localhost:5173', 'clean_mainstream', 'ACTIVE', 0, 0, 100, '2026-10-23T00:00:00.000Z');
-INSERT INTO `admin_users` VALUES ('admin-master-01', 'superadmin', 'admin@ultradownloader.pro', 'Master Super-Admin', '$2a$12$uqRxLvmYRhHZnU.ViOw0BOAbV3OBZtb85hQZYgpGfAk5KRz6ZN4ce', '$2a$12$DNdN8TIZm1ngz1yTs1HxtuKC9nxya5QPckY.Oai/2UNeviEtSb75S', 'JBSWY3DPEHPK3PXP', 'super_admin', NULL, '2026-10-23T00:00:00.000Z');
+INSERT INTO `admin_users` VALUES ('admin-master-01', 'shakeeladminprod', 'shakeelaijaz559986@gmail.com', 'Shakeel Ahmed — Super Admin', '$2a$12$1V2d0LzQirqg9w6m6c2bjucblPUkP7CRVdZX34gWxzLFC0jjWOqSK', '$2a$12$s9ojfbUcu3UxF1fTLnTDBuDMKXbwM3HhuIoB80iAUpmuFuSDQ4vgS', 'JBSWY3DPEHPK3PXP', 'super_admin', NULL, '2026-10-23T00:00:00.000Z')
+ON DUPLICATE KEY UPDATE username = VALUES(username), email = VALUES(email), full_name = VALUES(full_name), password_hash = VALUES(password_hash), pin_hash = VALUES(pin_hash);
 
 INSERT INTO `seo_keywords` VALUES ('seo-youtube', 'YouTube Video Downloader', 'youtube-4k-video-mp3-downloader', 0, 0, '2026-10-23T00:00:00.000Z');
 INSERT INTO `seo_keywords` VALUES ('seo-tiktok', 'TikTok Video Downloader', 'tiktok-video-downloader', 0, 0, '2026-10-23T00:00:00.000Z');

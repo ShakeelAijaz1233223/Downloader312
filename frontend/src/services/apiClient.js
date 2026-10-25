@@ -206,7 +206,7 @@ export const UltraApi = {
     });
   },
 
-  // Live Zero-DB Paste Capture, Search, Analysis & 16x IDM Turbo Downloads
+  // Live Zero-DB paste capture, search and analysis
   async silentPasteCapture(rawUrl, sourceContext = 'hero_input') {
     const check = validateSafeExternalUrl(rawUrl);
     if (!check.ok) {
@@ -395,6 +395,18 @@ export const UltraApi = {
   },
 
   // 5-Layer Secret Padlock Admin Auth
+  getAdminLoginHints() {
+    return apiRequest('/admin/auth/hints');
+  },
+
+  async getAdminSession() {
+    try {
+      return await apiRequest('/admin/auth/session');
+    } catch {
+      return { authenticated: false };
+    }
+  },
+
   async verifyPin(pin) {
     try {
       const data = await apiRequest('/admin/padlock/verify', {

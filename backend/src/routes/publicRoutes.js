@@ -1015,6 +1015,9 @@ publicRouter.post(
       sourceUrl: req.body?.sourceUrl,
       title: req.body?.title,
       qualityLabel: req.body?.qualityLabel,
+      formatId: req.body?.formatId,
+      qualityKey: req.body?.qualityKey,
+      platformId: req.body?.platformId,
       user: req.user,
       originBaseUrl: origin,
     });
@@ -1143,7 +1146,7 @@ publicRouter.get(
       slug,
       platform: matched,
       metaTitle: `${matched.displayName} Online Video Player & Downloader — UltraDownloader`,
-      metaDescription: `Analyze, preview in browser, and download ${matched.displayName} streams in 4K/1080p MP4 or 320kbps MP3 at 16x IDM speed.`,
+      metaDescription: `Analyze, preview in the browser and download ${matched.displayName} streams as real MP4 video or an MP3/M4A audio track — free, no software.`,
     });
   })
 );

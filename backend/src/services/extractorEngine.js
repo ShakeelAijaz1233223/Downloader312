@@ -8,6 +8,7 @@ import { AppError } from '../utils/errors.js';
 import { assertSafeOutboundUrl, normalizeCommonMirrorTypos } from '../security/antiSsrfGuard.js';
 import { decryptVaultSecret } from '../security/cryptoVault.js';
 import { PLATFORM_DEFINITIONS, detectPlatformFromUrl } from '../data/platformDefinitions.js';
+import { withLinkGuide } from '../data/platformLinks.js';
 import { isTeraboxEcosystemUrl, analyzeTeraboxShareLink } from './teraboxEngine.js';
 import { sniffEmbeddedStreamFromWebPage } from './deepPageSniffer.js';
 import { tryExtendedEmbedExtractors } from './extendedEmbedExtractors.js';
@@ -267,7 +268,7 @@ export async function getActivePlatformsFromDb() {
       }
     }
 
-    return combined;
+    return combined.map(withLinkGuide);
   });
 }
 
@@ -281,6 +282,55 @@ export function formatDurationSeconds(sec) {
     return `${hrs}:${String(mins).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
   }
   return `${mins}:${String(rem).padStart(2, '0')}`;
+}
+
+// ---------------------------------------------------------------------------
+// ONE stream per real format — YouTube returns the SAME itag from the ANDROID
+// and IOS clients (and every resolver can discover the same CDN URL twice),
+// which used to render duplicate "142kbps WEBM" / "1080p MP4" rows.
+// ---------------------------------------------------------------------------
+export function dedupeStreams(list = [], keyFn) {
+  const seen = new Set();
+  const out = [];
+  for (const item of list) {
+    if (!item) continue;
+    const key = keyFn(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+/**
+ * Picks the stream a normal visitor expects when they hit ONE button:
+ * a real playable file WITH sound, highest resolution first.
+ * Never invents a resolution — it only chooses between formats the source
+ * actually returned.
+ */
+export function selectAutoStream(streams = {}) {
+  const withSound = [
+    ...(streams.videoAudio || streams.videoWithAudio || []),
+  ].filter((s) => s && s.hasAudio && s.hasVideo);
+
+  const rank = (s) => {
+    const ext = String(s.formatExt || '').toLowerCase();
+    const extScore = ext === 'mp4' ? 3 : ext === 'webm' ? 2 : 1;
+    return Number(s.height || 0) * 10 + extScore;
+  };
+
+  const bestWithSound = [...withSound].sort((a, b) => rank(b) - rank(a))[0];
+  if (bestWithSound) return { stream: bestWithSound, hasAudio: true, muted: false };
+
+  const videoOnly = [...(streams.videoOnly || [])].sort(
+    (a, b) => Number(b.height || 0) - Number(a.height || 0)
+  )[0];
+  if (videoOnly) return { stream: videoOnly, hasAudio: false, muted: true };
+
+  const audioOnly = (streams.audioOnly || [])[0];
+  if (audioOnly) return { stream: audioOnly, hasAudio: true, muted: true };
+
+  return { stream: null, hasAudio: false, muted: false };
 }
 
 function classifyResolutionTier(width, height, formatNote = '') {
@@ -664,15 +714,22 @@ async function extractYoutubeDirectStreams(videoId, canonicalUrl, platform) {
   const adaptiveFormats = [];
   let hlsManifestUrl = '';
 
+  const seenItags = new Set();
   for (const payload of okPayloads) {
     if (!hlsManifestUrl && payload.streamingData?.hlsManifestUrl) {
       hlsManifestUrl = payload.streamingData.hlsManifestUrl;
     }
     for (const f of payload.streamingData?.formats || []) {
-      if (f.url) combinedFormats.push(f);
+      if (f.url && !seenItags.has(`f-${f.itag}`)) {
+        seenItags.add(`f-${f.itag}`);
+        combinedFormats.push(f);
+      }
     }
     for (const f of payload.streamingData?.adaptiveFormats || []) {
-      if (f.url) adaptiveFormats.push(f);
+      if (f.url && !seenItags.has(`a-${f.itag}`)) {
+        seenItags.add(`a-${f.itag}`);
+        adaptiveFormats.push(f);
+      }
     }
   }
 
@@ -684,7 +741,12 @@ async function extractYoutubeDirectStreams(videoId, canonicalUrl, platform) {
     const tier = classifyResolutionTier(f.width, f.height, f.qualityLabel);
     if (seenVa.has(tier.key)) continue;
     seenVa.add(tier.key);
-    const bytes = Number(f.contentLength || 0) || Math.round(((Number(f.bitrate || 650000)) / 8) * durationSec) || null;
+    const exactBytes = Number(f.contentLength || 0) || 0;
+    const bytes =
+      exactBytes ||
+      Math.round(((Number(f.bitrate || 650000)) / 8) * durationSec) ||
+      null;
+    const sizeEstimated = !exactBytes && Boolean(bytes);
     const dlName = buildSafeDownloadFileName(title, `${tier.key}_VideoAudio`, 'mp4');
     videoAudio.push({
       formatId: `yt-va-${f.itag}`,
@@ -701,6 +763,7 @@ async function extractYoutubeDirectStreams(videoId, canonicalUrl, platform) {
       requiresMux: false,
       badge: 'Video + Sound MP4',
       sizeBytes: bytes,
+      sizeEstimated,
       directCdnUrl: f.url,
       streamUrl: wrapDirectPassThroughUrl(f.url, dlName),
     });
@@ -726,29 +789,6 @@ async function extractYoutubeDirectStreams(videoId, canonicalUrl, platform) {
     const tier = classifyResolutionTier(f.width, f.height, f.qualityLabel);
     const ext = String(f.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
     const bytes = Number(f.contentLength || 0) || null;
-
-    if (!seenVa.has(tier.key)) {
-      seenVa.add(tier.key);
-      const dlName = buildSafeDownloadFileName(title, tier.key, ext);
-      videoAudio.push({
-        formatId: `yt-hd-${f.itag}`,
-        formatSelector: `itag_${f.itag}`,
-        label: `${tier.title} (${f.qualityLabel || `${h}p`}) — Direct ${ext.toUpperCase()} Stream`,
-        qualityKey: tier.key,
-        qualityTitle: tier.title,
-        qualitySub: `${ext.toUpperCase()} · IDM 32x Direct`,
-        height: h,
-        fps: f.fps || 30,
-        formatExt: ext,
-        hasAudio: false,
-        hasVideo: true,
-        requiresMux: false,
-        badge: h >= 1080 ? 'Ultra HD Direct' : 'Direct IDM / Chrome',
-        sizeBytes: bytes,
-        directCdnUrl: f.url,
-        streamUrl: wrapDirectPassThroughUrl(f.url, dlName),
-      });
-    }
 
     const voKey = `${h}-${ext}`;
     if (!seenHeight.has(voKey)) {
@@ -1508,7 +1548,7 @@ async function tryDedicatedSocialApiExtractors(healedUrl, platform) {
             const durationSec = Math.round(Number(sound.duration || 0) / 1000);
             const passUrl = wrapDirectPassThroughUrl(
               trJson.url,
-              buildSafeDownloadFileName(title, '320kbps', 'mp3'),
+              buildSafeDownloadFileName(title, 'audio', 'mp3'),
               healedUrl
             );
             return {
@@ -1874,9 +1914,18 @@ function attachUnifiedStreamAliases(rawResult) {
       badge: item.badge || fallbackLabel,
     }));
 
-  const videoAudio = decorate(s.videoAudio || s.videoWithAudio, 'Direct Download');
-  const videoOnly = decorate(s.videoOnly, 'HD Video');
-  const audioOnly = decorate(s.audioOnly, 'Direct Audio');
+  const videoAudio = dedupeStreams(
+    decorate(s.videoAudio || s.videoWithAudio, 'Direct Download'),
+    (item) => `${item.qualityKey || item.qualityTitle}|${item.formatExt}|${item.directCdnUrl || item.streamUrl}`
+  );
+  const videoOnly = dedupeStreams(
+    decorate(s.videoOnly, 'HD Video'),
+    (item) => `${item.height || item.qualityKey}|${item.formatExt}|${item.directCdnUrl || item.streamUrl}`
+  );
+  const audioOnly = dedupeStreams(
+    decorate(s.audioOnly, 'Direct Audio'),
+    (item) => `${item.qualityKey || item.qualityTitle}|${item.formatExt}|${item.directCdnUrl || item.streamUrl}`
+  );
   const subtitles = (Array.isArray(s.subtitles) ? s.subtitles : []).map((sub) => ({
     ...sub,
     proxyUrl: sub.proxyUrl || sub.downloadUrl || sub.url || '',
@@ -1891,15 +1940,32 @@ function attachUnifiedStreamAliases(rawResult) {
     subtitles,
   };
 
+  const autoChoice = selectAutoStream(unifiedStreams);
+
   return {
     ...rawResult,
     extractorTierId: rawResult.extractorTier,
     extractorTier: friendlyTier(rawResult.extractorTier),
     streams: unifiedStreams,
+    // ONE recommended stream: real file, real sound, best available quality.
+    autoStream: autoChoice.stream || null,
+    autoStreamMeta: {
+      tab: autoChoice.stream?.hasVideo && autoChoice.stream?.hasAudio
+        ? 'video_audio'
+        : autoChoice.stream?.hasVideo
+          ? 'video_only'
+          : 'audio_only',
+      hasAudio: autoChoice.hasAudio,
+      muted: autoChoice.muted,
+      qualityTitle: autoChoice.stream?.qualityTitle || '',
+      formatExt: autoChoice.stream?.formatExt || '',
+    },
     media: {
       ...rawResult.media,
       streams: unifiedStreams,
       subtitles,
+      maxResolutionLabel:
+        videoOnly[0]?.qualityTitle || videoAudio[0]?.qualityTitle || rawResult.media.maxResolutionLabel,
     },
   };
 }

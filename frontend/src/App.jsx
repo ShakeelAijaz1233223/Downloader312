@@ -21,7 +21,22 @@ const SecretAdminPortal = lazy(() =>
   import('./pages/SecretAdminPortal').then((m) => ({ default: m.SecretAdminPortal }))
 );
 
-const SECRET_ADMIN_SLUG = import.meta.env.VITE_SECRET_ADMIN_SLUG || 'vault-control-x9p4';
+const SECRET_ADMIN_SLUG = String(
+  import.meta.env.VITE_ADMIN_SECRET_ROUTE ||
+    import.meta.env.VITE_SECRET_ADMIN_SLUG ||
+    '/vault-control-x9p4'
+)
+  .replace(/^\/+|\/+$/g, '')
+  .split('/')
+  .pop();
+
+// Pro-Security aliases: the same secret console answers on all of them, so the
+// owner's old bookmark keeps working while the URL still carries Pro Security.
+const ADMIN_ROUTE_PATHS = [
+  `/${SECRET_ADMIN_SLUG}`,
+  `/pro-security/${SECRET_ADMIN_SLUG}`,
+  `/${SECRET_ADMIN_SLUG}/pro-security`,
+];
 
 function GlobalStealthShortcutWatcher() {
   const navigate = useNavigate();
@@ -70,20 +85,23 @@ export function App() {
           <Route path="/dashboard" element={<HoneypotNotFoundPage isHoneypot />} />
 
           {/* 5-Layer Secret Padlock Executive Command Center (Isolated Stealth Chunk) */}
-          <Route
-            path={`/${SECRET_ADMIN_SLUG}`}
-            element={
-              <Suspense
-                fallback={
-                  <div className="min-h-screen bg-white flex items-center justify-center text-blue-600 font-bold text-sm">
-                    Initializing Stealth Vault...
-                  </div>
-                }
-              >
-                <SecretAdminPortal />
-              </Suspense>
-            }
-          />
+          {ADMIN_ROUTE_PATHS.map((adminPath) => (
+            <Route
+              key={adminPath}
+              path={adminPath}
+              element={
+                <Suspense
+                  fallback={
+                    <div className="min-h-screen bg-[#080512] flex items-center justify-center text-fuchsia-300 font-bold text-sm">
+                      Initializing Pro-Security Vault…
+                    </div>
+                  }
+                >
+                  <SecretAdminPortal />
+                </Suspense>
+              }
+            />
+          ))}
 
           {/* Catch-all 404 */}
           <Route path="*" element={<HoneypotNotFoundPage />} />

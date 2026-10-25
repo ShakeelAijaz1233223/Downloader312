@@ -1,12 +1,5 @@
-// Round-9: catalogue is exactly the user's two lists (8 social + 18 streaming + 12 cloud)
-export const PLATFORM_CATEGORIES = [
-  { id: 'all', label: 'All supported (404)' },
-  { id: 'social', label: 'Social Media (38)' },
-  { id: 'video', label: 'Streaming · Video · Music (122)' },
-  { id: 'education', label: 'Courses & Learning (61)' },
-  { id: 'cloud_terabox', label: 'TeraBox & Cloud (22)' },
-  { id: 'web', label: 'AI · Search · Shopping · Dev (161)' },
-];
+// Category counts are computed live from the API catalogue (SupportedSitesSection),
+// so no hard-coded — and instantly stale — numbers live here any more.
 
 export const QUICK_SUGGESTION_CHIPS = [
   'Blender 4K Short Film',

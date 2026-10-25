@@ -164,7 +164,6 @@ export default defineConfig({
           'vendor-react': ['react', 'react-router-dom', 'react-dom'],
           'vendor-charts': ['recharts'],
           'vendor-motion': ['framer-motion', 'lucide-react'],
-          'vendor-player': ['hls.js'],
         },
       },
     },

@@ -62,10 +62,6 @@ export const SOCIAL_PLATFORMS = [
   p('mewe', "MeWe", "MeWe videos", 'social', '#06B6D4', 'globe', ['mewe.com']),
   p('diaspora', "Diaspora", "Federated video", 'social', '#64748B', 'globe', ['diaspora.org', 'diasporafoundation.org']),
   p('nextdoor', "Nextdoor", "Neighbourhood video posts", 'social', '#2563EB', 'globe', ['nextdoor.com']),
-  p('facebook_live', "Facebook Live", "Live stream capture", 'social', '#0EA5E9', 'globe', ['facebook.com']),
-  p('youtube_live', "YouTube Live", "Live stream capture", 'social', '#6366F1', 'globe', ['youtube.com']),
-  p('tiktok_live', "TikTok LIVE", "Live stream capture", 'social', '#8B5CF6', 'globe', ['tiktok.com']),
-  p('instagram_live', "Instagram Live", "Live stream capture", 'social', '#EC4899', 'globe', ['instagram.com']),
   p('quora', "Quora", "Answer videos", 'social', '#F43F5E', 'globe', ['quora.com']),
   p('hacker_news', "Hacker News", "Linked video pages", 'social', '#F97316', 'globe', ['news.ycombinator.com']),
   p('indie_hackers', "Indie Hackers", "Founder videos", 'social', '#EAB308', 'globe', ['indiehackers.com']),
@@ -481,7 +477,9 @@ export const PLATFORM_DEFINITIONS = [
   ...EDUCATION_PLATFORMS,
   ...CLOUD_TERABOX_PLATFORMS,
   ...WEB_PLATFORMS,
-].filter((item) => !item.isAdult);
+] .filter((item) => !item.isAdult)
+  // De-duplicate by id (defensive: a copy/paste mistake can never create two cards).
+  .filter((item, index, list) => list.findIndex((x) => x.id === item.id) === index);
 
 export const DEFAULT_AD_WATERFALL = {
   enabled: true,

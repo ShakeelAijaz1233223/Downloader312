@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { UltraApi } from '../services/apiClient';
+import { runUniversalDownload } from '../services/downloadEngine';
 import {
   normalizeUserUrl,
   buildInstantDownloadUrl,
@@ -69,7 +70,7 @@ export function AppProvider({ children }) {
     preferredTeraboxHost: 'https://www.1024tera.com',
     autoUnwrapIteraplay: true,
     browserCookieSource: 'auto',
-    defaultVideoQuality: '1080p',
+    defaultVideoQuality: 'auto',
     showAdultVaultTab: false,
     autoCleanTempHours: 12,
   });
@@ -191,31 +192,46 @@ export function AppProvider({ children }) {
       // (single-button flow), only record history here — never trigger twice.
       skipDeviceTrigger = false,
     }) => {
+      // Never label a download with a resolution it does not have: the real
+      // stream title wins, otherwise the preference is used only if it is not
+      // the "auto" sentinel.
+      const pref = enginePrefs.defaultVideoQuality;
       const qualityLabel =
-        selectedStream?.qualityTitle || enginePrefs.defaultVideoQuality || 'HD';
+        selectedStream?.qualityTitle ||
+        (pref && pref !== 'auto' ? pref : '') ||
+        'HD';
       const formatExt = selectedStream?.formatExt || 'mp4';
       const fileName =
         selectedStream?.fileName ||
         buildCleanFileName(media?.title || 'Video', qualityLabel, formatExt);
 
-      // STEP 1 (synchronous): native device download via HTTP 206 attachment.
-      const instantUrl = skipDeviceTrigger
-        ? ''
-        : buildInstantDownloadUrl({
+      // STEP 1: the SAME verified signed-ticket engine the hero button uses.
+      // (A second, unsigned download path used to exist here and produced
+      //  different — sometimes broken — results for the same stream.)
+      let launched = false;
+      if (!skipDeviceTrigger) {
+        try {
+          const result = await runUniversalDownload({
+            stream: selectedStream,
+            analysis: { media, canonicalUrl: sourceUrl, platform },
+            user,
+            onProgress: () => {},
+          });
+          launched = Boolean(result?.ok);
+          if (launched) showToast(result.message, 'success');
+        } catch (err) {
+          // Last-resort fallback for a plain direct file link only.
+          const instantUrl = buildInstantDownloadUrl({
             stream: selectedStream,
             media,
             sourceUrl,
             qualityLabel,
           });
-      let launched = instantUrl ? triggerDeviceDownload(instantUrl, fileName) : false;
-
-      if (launched) {
-        showToast(
-          user
-            ? `Download started: ${fileName}`
-            : `Download started: ${fileName} (Guest mode — no history saved)`,
-          'success'
-        );
+          launched = instantUrl ? triggerDeviceDownload(instantUrl, fileName) : false;
+          if (!launched) {
+            showToast(err?.message || 'Could not start this download.', 'error');
+          }
+        }
       }
 
       // STEP 2 (background): save personal history ONLY for logged-in users.
@@ -278,7 +294,11 @@ export function AppProvider({ children }) {
           ...(analysis?.streams?.videoOnly || analysis?.media?.streams?.videoOnly || []),
           ...(analysis?.streams?.audioOnly || analysis?.media?.streams?.audioOnly || []),
         ];
-        const chosen = pool[0] || analysis?.media?.previewPlayer || null;
+        const chosen =
+          analysis?.autoStream ||
+          pool.find((item) => item?.hasAudio && item?.hasVideo) ||
+          pool[0] ||
+          null;
         if (!chosen) {
           showToast('This page has no downloadable media stream.', 'error');
           return null;

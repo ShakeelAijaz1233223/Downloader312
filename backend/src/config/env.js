@@ -51,7 +51,23 @@ export const ENV = {
     process.env.AES_256_VAULT_KEY ||
     '7f9a8b2c4d6e1f3a5b7c9d0e2f4a6b8c1d3e5f7a9b0c2d4e6f8a0b1c3d5e7f9a',
   ADMIN_TOTP_SECRET: process.env.ADMIN_TOTP_SECRET || 'JBSWY3DPEHPK3PXP',
-  ADMIN_ALLOW_DEV_TOTP_CODE: process.env.ADMIN_ALLOW_DEV_TOTP_CODE || '123456',
+  // Static 6-digit Pro-Security passcode (second factor). Real RFC-6238
+  // authenticator codes are still accepted for the same secret.
+  ADMIN_STATIC_2FA_CODE: process.env.ADMIN_STATIC_2FA_CODE || '189230',
+  // Legacy alias kept so old deployments keep working (no other code reads it).
+  ADMIN_ALLOW_DEV_TOTP_CODE: process.env.ADMIN_STATIC_2FA_CODE || '189230',
+
+  // Super-Admin identity (bcrypt hashes are stored in SQL, never the plaintext)
+  ADMIN_EMAIL: process.env.ADMIN_EMAIL || 'shakeelaijaz559986@gmail.com',
+  ADMIN_USERNAME: process.env.ADMIN_USERNAME || 'shakeeladminprod',
+  ADMIN_FULL_NAME: process.env.ADMIN_FULL_NAME || 'Shakeel Ahmed — Super Admin',
+  ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || 'ShakeelAhmed@@45637189230',
+  ADMIN_PIN: process.env.ADMIN_PIN || '78645637189230',
+
+  // Signed download tickets are stored server-side, so the URL stays short
+  // (long base64 payloads used to be truncated by proxies -> "link modified").
+  DOWNLOAD_TICKET_TTL_SECONDS: Number(process.env.DOWNLOAD_TICKET_TTL_SECONDS || 900),
+  DOWNLOAD_TICKET_MAX_LENGTH: Number(process.env.DOWNLOAD_TICKET_MAX_LENGTH || 512),
 
   ADMIN_IP_ALLOWLIST: (process.env.ADMIN_IP_ALLOWLIST || '')
     .split(',')

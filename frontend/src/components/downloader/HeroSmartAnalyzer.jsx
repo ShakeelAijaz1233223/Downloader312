@@ -80,7 +80,9 @@ export function HeroSmartAnalyzer({ presetPlatform = null }) {
   const [analysis, setAnalysis] = useState(null);
   const [searchResults, setSearchResults] = useState(null);
   const [streamTab, setStreamTab] = useState('video_audio');
-  const [pickedFormatIdx, setPickedFormatIdx] = useState(0);
+  // "Auto" = the engine chooses the best real stream for THIS video (never a
+  // fake 4K label). Picking a card manually switches Auto off.
+  const [manualPickKey, setManualPickKey] = useState('');
   const [showCookieBox, setShowCookieBox] = useState(false);
   const [searchAnythingOpen, setSearchAnythingOpen] = useState(false);
   const [ephemeralCookies, setEphemeralCookies] = useState('');
@@ -132,8 +134,8 @@ export function HeroSmartAnalyzer({ presetPlatform = null }) {
           ephemeralCookies
         );
         setAnalysis(res);
-        setStreamTab('video_audio');
-        setPickedFormatIdx(0);
+        setStreamTab(res?.autoStreamMeta?.tab || 'video_audio');
+        setManualPickKey('');
       } else {
         setAnalysis(null);
         const searchRes = await UltraApi.searchVideos({ q: raw, page: 1 });
@@ -168,15 +170,61 @@ export function HeroSmartAnalyzer({ presetPlatform = null }) {
     }
   };
 
-  const activeStreamsList = useMemo(() => {
-    const s = analysis?.streams || analysis?.media?.streams;
-    if (!s) return [];
-    if (streamTab === 'video_only') return s.videoOnly || [];
-    if (streamTab === 'audio_only') return s.audioOnly || [];
-    return s.videoAudio || s.videoWithAudio || [];
-  }, [analysis, streamTab]);
+  const streamGroups = useMemo(() => {
+    const s = analysis?.streams || analysis?.media?.streams || {};
+    const dedupe = (list = []) => {
+      const seen = new Set();
+      return list.filter((item) => {
+        if (!item) return false;
+        const key = `${item.qualityKey || item.qualityTitle || ''}|${item.formatExt || ''}|${
+          item.directCdnUrl || item.streamUrl || ''
+        }`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    };
 
-  const activeStream = activeStreamsList[pickedFormatIdx] || activeStreamsList[0] || null;
+    const withAudio = dedupe(s.videoAudio || s.videoWithAudio || []);
+    const onlyWithAudio = withAudio.filter((item) => item.hasAudio !== false);
+
+    return {
+      // "Video + Sound" must never list a muted adaptive track.
+      video_audio: onlyWithAudio.length ? onlyWithAudio : withAudio,
+      video_only: dedupe(s.videoOnly || []),
+      audio_only: dedupe(s.audioOnly || []),
+      hadSilentOnly: withAudio.length > 0 && onlyWithAudio.length === 0,
+    };
+  }, [analysis]);
+
+  const activeStreamsList = streamGroups[streamTab] || [];
+
+  // Auto choice: prefer the server's recommendation for THIS video, otherwise
+  // the best stream that really contains sound.
+  const autoStream = analysis?.autoStream || null;
+  const autoIdx = useMemo(() => {
+    if (!activeStreamsList.length) return -1;
+    if (autoStream) {
+      const byId = activeStreamsList.findIndex(
+        (item) =>
+          (autoStream.formatId && item.formatId === autoStream.formatId) ||
+          (autoStream.directCdnUrl && item.directCdnUrl === autoStream.directCdnUrl)
+      );
+      if (byId >= 0) return byId;
+    }
+    return 0;
+  }, [activeStreamsList, autoStream]);
+
+  const manualIdx = useMemo(() => {
+    if (!manualPickKey) return -1;
+    return activeStreamsList.findIndex(
+      (item) => `${item.formatId || ''}|${item.qualityKey || ''}` === manualPickKey
+    );
+  }, [activeStreamsList, manualPickKey]);
+
+  const activeIdx = manualIdx >= 0 ? manualIdx : autoIdx;
+  const activeStream = activeStreamsList[activeIdx] || activeStreamsList[0] || null;
+  const isAutoQuality = manualIdx < 0;
 
   const handleCreateViralLink = async () => {
     if (!analysis) return;
@@ -258,9 +306,9 @@ export function HeroSmartAnalyzer({ presetPlatform = null }) {
     ? 'Retry Download'
     : dl.state === DOWNLOAD_STATE.STARTED
     ? 'Download Again'
-    : `Download · ${activeStream?.qualityTitle || 'HD'} ${
-        activeStream?.formatExt ? `(${String(activeStream.formatExt).toUpperCase()})` : ''
-      }`;
+    : `Download${isAutoQuality ? ' · Auto' : ''} · ${
+        activeStream?.qualityTitle || 'HD'
+      } ${activeStream?.formatExt ? `(${String(activeStream.formatExt).toUpperCase()})` : ''}`;
 
   return (
     <section className="relative w-full overflow-hidden pt-8 pb-12 border-b border-slate-200/80">
@@ -362,6 +410,16 @@ export function HeroSmartAnalyzer({ presetPlatform = null }) {
               </button>
             </div>
           </form>
+
+          {inputVal.trim().includes('.') && !detectedPlatform && (
+            <div className="mt-3 flex items-start gap-2 rounded-xl border border-violet-200 bg-violet-50/70 px-3 py-2 text-[11px] text-violet-900">
+              <Globe2 size={14} className="mt-0.5 shrink-0 text-violet-600" />
+              <span>
+                <strong>Universal mode:</strong> this website is not in the catalogue — it is still
+                accepted. Paste the exact video / post / file URL and press Extract.
+              </span>
+            </div>
+          )}
 
           {/* Bottom Bar Inside Command Deck: Sample Links + Speed Mode + Enrolled Course Cookies */}
           <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -547,7 +605,7 @@ export function HeroSmartAnalyzer({ presetPlatform = null }) {
                         type="button"
                         onClick={() => {
                           setStreamTab(tab.id);
-                          setPickedFormatIdx(0);
+                          setManualPickKey('');
                         }}
                         className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
                           streamTab === tab.id
@@ -560,25 +618,39 @@ export function HeroSmartAnalyzer({ presetPlatform = null }) {
                     ))}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setSpeedLimiterModalOpen(true)}
-                    className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
-                  >
-                    <Sliders size={13} />
-                    <span>Speed Settings</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide ${
+                        isAutoQuality
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-slate-100 text-slate-500 border border-slate-200'
+                      }`}
+                    >
+                      <Sparkles size={11} />
+                      {isAutoQuality ? 'Auto quality' : 'Manual quality'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSpeedLimiterModalOpen(true)}
+                      className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
+                    >
+                      <Sliders size={13} />
+                      <span>Speed Settings</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Quality List */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
                   {activeStreamsList.map((st, idx) => {
-                    const selected = idx === pickedFormatIdx;
+                    const selected = idx === activeIdx;
                     return (
                       <button
                         key={`${st.formatId || idx}-${st.qualityTitle}`}
                         type="button"
-                        onClick={() => setPickedFormatIdx(idx)}
+                        onClick={() =>
+                          setManualPickKey(`${st.formatId || ''}|${st.qualityKey || ''}`)
+                        }
                         className={`text-left rounded-2xl border p-3.5 transition-all flex items-center justify-between gap-2 ${
                           selected
                             ? 'border-blue-600 bg-blue-50/70 ring-2 ring-blue-600/15'
@@ -595,8 +667,10 @@ export function HeroSmartAnalyzer({ presetPlatform = null }) {
                             </span>
                           </div>
                           <p className="text-[11px] text-slate-500 mt-0.5">
-                            {st.codecLabel || 'H.264 + AAC'} ·{' '}
-                            {st.sizeBytes ? formatBytes(st.sizeBytes) : 'Fast Stream Size'}
+                            {st.codecLabel || st.qualitySub || 'H.264 + AAC'} ·{' '}
+                            {st.sizeBytes
+                              ? `${st.sizeEstimated ? '~' : ''}${formatBytes(st.sizeBytes)}`
+                              : 'Size shown during download'}
                           </p>
                         </div>
                         <span
@@ -610,6 +684,14 @@ export function HeroSmartAnalyzer({ presetPlatform = null }) {
                     );
                   })}
                 </div>
+
+                {activeStreamsList.length === 0 && (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-[11px] text-amber-900">
+                    This source only exposes{' '}
+                    {streamTab === 'audio_only' ? 'video tracks' : 'other tracks'} on this tab. Open
+                    another tab — the engine never invents a resolution that the video does not have.
+                  </div>
+                )}
 
                 {/* SINGLE fast download button — real bytes, real browser download */}
                 {activeStream && (

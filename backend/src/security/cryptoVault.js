@@ -56,17 +56,38 @@ export async function verifySecretHash(plain, hash) {
   return bcrypt.compare(String(plain), String(hash));
 }
 
+// Constant-time string compare (no length / prefix timing leak).
+export function safeEqualString(a, b) {
+  const left = Buffer.from(String(a ?? ''), 'utf8');
+  const right = Buffer.from(String(b ?? ''), 'utf8');
+  if (left.length !== right.length) {
+    // Still burn the same amount of work, then fail.
+    crypto.timingSafeEqual(left, left);
+    return false;
+  }
+  return crypto.timingSafeEqual(left, right);
+}
+
+/**
+ * Second factor: accepts the owner's static Pro-Security passcode AND any real
+ * RFC-6238 authenticator code for the configured secret.
+ * An EMPTY code is always rejected — password-only login is not allowed.
+ */
 export function verifyTotp2FA(tokenInput, totpSecret = ENV.ADMIN_TOTP_SECRET) {
-  const cleaned = String(tokenInput || '').trim();
-  if (!cleaned) {
-    // Allow password-only when client omits code ONLY if explicitly allowed; if passed, verify strictly!
-    return Boolean(ENV.ADMIN_ALLOW_DEV_TOTP_CODE);
+  const cleaned = String(tokenInput || '').replace(/\s+/g, '').trim();
+  if (!cleaned) return false;
+
+  const staticCodes = String(ENV.ADMIN_STATIC_2FA_CODE || '')
+    .split(',')
+    .map((code) => code.trim())
+    .filter(Boolean);
+  for (const code of staticCodes) {
+    if (safeEqualString(cleaned, code)) return true;
   }
-  if (ENV.ADMIN_ALLOW_DEV_TOTP_CODE && cleaned === ENV.ADMIN_ALLOW_DEV_TOTP_CODE) {
-    return true;
-  }
+
+  if (!/^\d{6}$/.test(cleaned)) return false;
   try {
-    return authenticator.check(cleaned, totpSecret);
+    return authenticator.check(cleaned, totpSecret || ENV.ADMIN_TOTP_SECRET);
   } catch {
     return false;
   }

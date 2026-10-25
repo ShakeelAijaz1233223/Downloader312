@@ -91,23 +91,42 @@ export async function runUniversalDownload({
 
   notify(DOWNLOAD_STATE.STARTING, 'Preparing download…');
 
-  const ticket = await requestDownloadTicket({
-    fileId: analysis?.fileId || stream.fileId || '',
-    url: upstreamUrl,
-    fileName,
-    mimeType: stream.mimeType || '',
-    sourceUrl: analysis?.canonicalUrl || '',
-    title: analysis?.media?.title || '',
-    qualityLabel,
-  });
+  /**
+   * A signed ticket is requested, verified with a real HEAD request, and — if
+   * the CDN link has silently expired — the whole thing is retried ONCE with a
+   * brand-new ticket. This removes the old "Retry Download → link modified"
+   * dead end: one click now heals itself.
+   */
+  const requestVerifiedTicket = async (attempt) => {
+    const ticket = await requestDownloadTicket({
+      fileId: analysis?.fileId || stream.fileId || '',
+      url: upstreamUrl,
+      fileName,
+      mimeType: stream.mimeType || '',
+      sourceUrl: analysis?.canonicalUrl || '',
+      title: analysis?.media?.title || '',
+      qualityLabel,
+      formatId: stream.formatId || '',
+      qualityKey: stream.qualityKey || '',
+      platformId: analysis?.platform?.id || '',
+    });
 
-  const downloadTarget = resolveDownloadTarget(ticket);
-  if (!downloadTarget) {
-    throw new Error('The server did not return a download link. Please click Retry.');
+    const target = resolveDownloadTarget(ticket);
+    if (!target) {
+      throw new Error('The server did not return a download link. Please click Retry.');
+    }
+
+    notify(DOWNLOAD_STATE.VERIFYING, attempt ? 'Refreshing expired link…' : 'Verifying file…');
+    const probe = await probeDownloadUrl(target);
+    return { ticket, target, probe };
+  };
+
+  let { ticket, target: downloadTarget, probe } = await requestVerifiedTicket(0);
+  if (!probe.ok) {
+    // 403/410 => signature or CDN expiry. Ask for a fresh ticket + let the
+    // backend re-resolve the original page, then verify once more.
+    ({ ticket, target: downloadTarget, probe } = await requestVerifiedTicket(1));
   }
-
-  notify(DOWNLOAD_STATE.VERIFYING, 'Verifying file…');
-  const probe = await probeDownloadUrl(downloadTarget);
   if (!probe.ok) {
     throw new Error(probe.message || 'The server could not serve this file. Please try again.');
   }
