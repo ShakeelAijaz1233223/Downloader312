@@ -38,6 +38,17 @@ import {
   recordAdEvent,
   recordVisitorSession,
 } from '../services/adsService.js';
+import {
+  createConvertJob,
+  getConvertJob,
+  listConvertJobs,
+  cancelConvertJob,
+  getConvertedFilePath,
+  getConverterCapabilities,
+  streamConvertedFile,
+} from '../services/mediaConverter.js';
+import { searchVideos50, SEARCH_FILTERS } from '../services/videoSearchService.js';
+import { analyseForSeo } from '../services/seoAiService.js';
 import { universalAnythingSearch } from '../services/universalSearch.js';
 import {
   createDownloadTicket,
@@ -1020,6 +1031,7 @@ publicRouter.post(
       platformId: req.body?.platformId,
       user: req.user,
       originBaseUrl: origin,
+      refreshSource: Boolean(req.body?.refreshSource),
     });
     return sendSuccess(res, ticket, 201);
   })
@@ -1033,6 +1045,115 @@ publicRouter.head('/files/download', handleTicketDownload);
 publicRouter.get('/files/download', handleTicketDownload);
 publicRouter.head('/files/download/:fileHint', handleTicketDownload);
 publicRouter.get('/files/download/:fileHint', handleTicketDownload);
+
+// ============================================================================
+// 12. AUTO-CONVERT ENGINE  (V12) — real MP3/M4A + real-quality MP4 output
+// ============================================================================
+publicRouter.get(
+  '/convert/capabilities',
+  asyncHandler(async (_req, res) => sendSuccess(res, await getConverterCapabilities()))
+);
+
+publicRouter.post(
+  '/convert',
+  asyncHandler(async (req, res) => {
+    const body = req.body || {};
+    const job = await createConvertJob({
+      sourceUrl: body.sourceUrl || body.url,
+      title: body.title,
+      target: body.target,
+      audioFormat: body.audioFormat,
+      mode: body.mode,
+    });
+    return sendSuccess(res, job, 202);
+  })
+);
+
+publicRouter.get(
+  '/convert',
+  asyncHandler(async (_req, res) => sendSuccess(res, { jobs: listConvertJobs(10) }))
+);
+
+publicRouter.get(
+  '/convert/:id',
+  asyncHandler(async (req, res) => {
+    const job = getConvertJob(req.params.id);
+    if (!job) {
+      throw new AppError(404, 'CONVERT_JOB_NOT_FOUND', 'That conversion job no longer exists.');
+    }
+    return sendSuccess(res, job);
+  })
+);
+
+publicRouter.delete(
+  '/convert/:id',
+  asyncHandler(async (req, res) => {
+    const job = cancelConvertJob(req.params.id);
+    if (!job) {
+      throw new AppError(404, 'CONVERT_JOB_NOT_FOUND', 'That conversion job no longer exists.');
+    }
+    return sendSuccess(res, job);
+  })
+);
+
+publicRouter.get(
+  '/convert/:id/file',
+  asyncHandler(async (req, res) => {
+    const file = getConvertedFilePath(req.params.id);
+    if (!file) {
+      throw new AppError(
+        410,
+        'CONVERT_FILE_GONE',
+        'This converted file has expired or was removed. Please convert again.'
+      );
+    }
+    return streamConvertedFile(req, res, file);
+  })
+);
+
+publicRouter.head(
+  '/convert/:id/file',
+  asyncHandler(async (req, res) => {
+    const file = getConvertedFilePath(req.params.id);
+    if (!file) {
+      throw new AppError(
+        410,
+        'CONVERT_FILE_GONE',
+        'This converted file has expired or was removed. Please convert again.'
+      );
+    }
+    return streamConvertedFile(req, res, file);
+  })
+);
+
+// ============================================================================
+// 13. VIDEO SEARCH ENGINE (V12) — exactly 50 real videos: 30 top + 20 middle
+// ============================================================================
+publicRouter.get(
+  '/videos/search',
+  asyncHandler(async (req, res) => {
+    const data = await searchVideos50({
+      query: req.query.q || req.query.query || '',
+      duration: String(req.query.duration || 'any'),
+      sort: String(req.query.sort || 'relevance'),
+      refresh: String(req.query.refresh || '') === '1',
+    });
+    return sendSuccess(res, { ...data, filters: SEARCH_FILTERS });
+  })
+);
+
+// ============================================================================
+// 14. SEO + AI ANALYSIS (V12) — real metadata + honest download verdict + SEO
+// ============================================================================
+publicRouter.post(
+  '/seo/analyze',
+  asyncHandler(async (req, res) => {
+    const data = await analyseForSeo(req.body?.url, {
+      selectedPlatformId: req.body?.selectedPlatformId || '',
+    });
+    return sendSuccess(res, data);
+  })
+);
 
 // Direct one-click download for a public library file (no ticket round-trip needed
 // for plain links; the endpoint still re-validates the registry + file on disk).

@@ -9,6 +9,7 @@ import {
   SupportedSitesPage,
   StandalonePlayerPage,
   AlbumMixSearchPage,
+  SeoAnalyzerPage,
   DownloadsHistoryPage,
   FavoritesPage,
   SettingsPage,
@@ -71,6 +72,7 @@ export function App() {
           <Route path="/sites" element={<SupportedSitesPage />} />
           <Route path="/player" element={<StandalonePlayerPage />} />
           <Route path="/albums" element={<AlbumMixSearchPage />} />
+          <Route path="/seo-analyzer" element={<SeoAnalyzerPage />} />
           <Route path="/downloads" element={<DownloadsHistoryPage />} />
           <Route path="/favorites" element={<FavoritesPage />} />
           <Route path="/settings" element={<SettingsPage />} />

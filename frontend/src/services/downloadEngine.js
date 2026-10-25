@@ -93,9 +93,13 @@ export async function runUniversalDownload({
 
   /**
    * A signed ticket is requested, verified with a real HEAD request, and — if
-   * the CDN link has silently expired — the whole thing is retried ONCE with a
-   * brand-new ticket. This removes the old "Retry Download → link modified"
-   * dead end: one click now heals itself.
+   * the CDN link has silently expired — the whole thing is retried with a
+   * BRAND-NEW ticket and `refreshSource: true`, which makes the backend
+   * re-resolve the original page and mint a link that is only seconds old.
+   *
+   * This is the actual cure for "This download link is not valid or has been
+   * modified" and "File wasn't available on site": one click heals itself, up
+   * to three attempts, without ever looping forever.
    */
   const requestVerifiedTicket = async (attempt) => {
     const ticket = await requestDownloadTicket({
@@ -109,6 +113,7 @@ export async function runUniversalDownload({
       formatId: stream.formatId || '',
       qualityKey: stream.qualityKey || '',
       platformId: analysis?.platform?.id || '',
+      refreshSource: attempt > 0,
     });
 
     const target = resolveDownloadTarget(ticket);
@@ -116,20 +121,43 @@ export async function runUniversalDownload({
       throw new Error('The server did not return a download link. Please click Retry.');
     }
 
-    notify(DOWNLOAD_STATE.VERIFYING, attempt ? 'Refreshing expired link…' : 'Verifying file…');
+    notify(
+      DOWNLOAD_STATE.VERIFYING,
+      attempt ? 'Refreshing expired link…' : 'Verifying file…'
+    );
     const probe = await probeDownloadUrl(target);
     return { ticket, target, probe };
   };
 
-  let { ticket, target: downloadTarget, probe } = await requestVerifiedTicket(0);
-  if (!probe.ok) {
-    // 403/410 => signature or CDN expiry. Ask for a fresh ticket + let the
-    // backend re-resolve the original page, then verify once more.
-    ({ ticket, target: downloadTarget, probe } = await requestVerifiedTicket(1));
+  const MAX_ATTEMPTS = 3;
+  let lastProbe = { ok: false, message: '' };
+  let verified = null;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const result = await requestVerifiedTicket(attempt);
+      lastProbe = result.probe;
+      if (result.probe.ok) {
+        verified = result;
+        break;
+      }
+    } catch (err) {
+      lastProbe = { ok: false, message: err?.message || '' };
+    }
+    // Small backoff so a rotated CDN signature has time to settle.
+    if (attempt < MAX_ATTEMPTS - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+    }
   }
-  if (!probe.ok) {
-    throw new Error(probe.message || 'The server could not serve this file. Please try again.');
+
+  if (!verified) {
+    throw new Error(
+      lastProbe.message ||
+        'The media server would not serve this file. Please try again in a moment.'
+    );
   }
+
+  const { ticket, target: downloadTarget, probe } = verified;
 
   // ---- plain, normal download (exactly like any website) -----------------
   // No external download manager, no branding: the browser's own download

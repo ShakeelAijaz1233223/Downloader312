@@ -24,6 +24,7 @@ import { useApp } from '../../context/AppContext';
 import { UltraApi, formatBytes } from '../../services/apiClient';
 import { normalizeUserUrl, buildCleanFileName } from '../../services/instantDownload';
 import { runUniversalDownload } from '../../services/downloadEngine';
+import { AutoConvertPanel } from './AutoConvertPanel';
 import { SearchAnythingModal } from './SearchAnythingModal';
 import {
   DOWNLOAD_STATE,
@@ -738,6 +739,13 @@ export function HeroSmartAnalyzer({ presetPlatform = null }) {
                         </button>
                       </div>
                     )}
+
+                    {/* V12: server-side auto-convert (real MP4 / MP3 / M4A) */}
+                    <AutoConvertPanel
+                      sourceUrl={analysis?.canonicalUrl || ''}
+                      title={analysis?.media?.title || ''}
+                      sourceHeight={Number(activeStream?.height || 0)}
+                    />
                   </div>
                 )}
 
