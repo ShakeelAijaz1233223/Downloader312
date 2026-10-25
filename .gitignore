@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+out/
+.vite/
+.turbo/
+
+# Test / cache artefacts
+coverage/
+.nyc_output/
+*.tsbuildinfo
+.vitest/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Runtime storage (downloaded media, temp muxing, vault archives)
+backend/storage/tmp/
+backend/storage/vault/*
+backend/storage/files/*.part
+!backend/storage/**/.gitkeep
+
+# Local / private overrides
+.env.local
+.env.*.local
+*.local
+.DS_Store
+Thumbs.db

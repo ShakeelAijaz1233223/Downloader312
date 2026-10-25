@@ -14,3 +14,111 @@
   animation: udLivePulse 2s ease-in-out infinite;
   will-change: transform, opacity;
 }
+
+/* ============================================================================
+   Pro-Security / Cube-Tunnel design system (purple neon, soft glow, minimal)
+   Shared by the public site and the ShakeelAdminProDownloader console.
+   ============================================================================ */
+@keyframes udFloatSlow {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(1.5deg);
+  }
+}
+
+.ud-float-slow {
+  animation: udFloatSlow 6s ease-in-out infinite;
+  will-change: transform;
+}
+
+.ud-grid-glow {
+  background-image:
+    linear-gradient(rgba(168, 85, 247, 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(168, 85, 247, 0.22) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: radial-gradient(ellipse at center, black 10%, transparent 72%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 10%, transparent 72%);
+}
+
+@keyframes udNeonSweep {
+  0% {
+    background-position: -220% 0;
+  }
+  100% {
+    background-position: 220% 0;
+  }
+}
+
+.ud-neon-sweep {
+  background-image: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(232, 121, 249, 0.35) 45%,
+    rgba(139, 92, 246, 0.35) 55%,
+    transparent 80%
+  );
+  background-size: 220% 100%;
+  animation: udNeonSweep 3.6s linear infinite;
+}
+
+@keyframes udCubeSpin {
+  from {
+    transform: rotate3d(1, 1, 0.4, 0deg);
+  }
+  to {
+    transform: rotate3d(1, 1, 0.4, 360deg);
+  }
+}
+
+.ud-cube-spin {
+  animation: udCubeSpin 16s linear infinite;
+  transform-style: preserve-3d;
+}
+
+@keyframes udRiseIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.ud-rise-in {
+  animation: udRiseIn 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ud-glow-border {
+  position: relative;
+}
+.ud-glow-border::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(130deg, rgba(232, 121, 249, 0.75), rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.75));
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+/* Users who ask their OS to reduce motion get a calm, static interface. */
+@media (prefers-reduced-motion: reduce) {
+  .ud-float-slow,
+  .ud-neon-sweep,
+  .ud-cube-spin,
+  .ud-rise-in,
+  .ud-live-dot {
+    animation: none !important;
+  }
+}

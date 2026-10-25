@@ -201,7 +201,7 @@ export const DEFAULT_ENGINE_PREFERENCES = {
   preferredTeraboxHost: 'https://www.1024tera.com',
   autoUnwrapIteraplay: true,
   browserCookieSource: 'auto', // 'auto' | 'chrome' | 'edge' | 'firefox' | 'brave' | 'none'
-  defaultVideoQuality: '1080p',
+  defaultVideoQuality: 'auto', // the engine picks the best REAL quality per video
   showAdultVaultTab: false, // permanently off: family-safe build
   autoCleanTempHours: 12,
 };
@@ -255,7 +255,7 @@ export function updateRuntimeEnginePreferences(patch = {}, { fromStartupHydratio
     runtimeEnginePreferences.browserCookieSource = String(patch.browserCookieSource || 'auto');
   }
   if (patch.defaultVideoQuality !== undefined) {
-    runtimeEnginePreferences.defaultVideoQuality = String(patch.defaultVideoQuality || '1080p');
+    runtimeEnginePreferences.defaultVideoQuality = String(patch.defaultVideoQuality || 'auto');
   }
   if (patch.showAdultVaultTab !== undefined) {
     // Locked off — 18+ content is not part of this product.

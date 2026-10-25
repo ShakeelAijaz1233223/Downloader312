@@ -101,11 +101,25 @@ export function SecretAdminPortal() {
     }
   }, []);
 
+  // A stale sessionStorage flag must never "unlock" the console: the server is
+  // the only authority on whether this tab still has a valid admin session.
   useEffect(() => {
-    const token = sessionStorage.getItem('ud_admin_access_token');
-    if (token) {
-      setAdminUser({ email: 'admin@ultradownloader.pro', role: 'super_admin' });
-    }
+    let alive = true;
+    (async () => {
+      const token = sessionStorage.getItem('ud_admin_access_token');
+      if (!token) return;
+      const session = await UltraApi.getAdminSession();
+      if (!alive) return;
+      if (session?.authenticated && session.admin) {
+        setAdminUser(session.admin);
+      } else {
+        sessionStorage.removeItem('ud_admin_access_token');
+        sessionStorage.removeItem('ud_padlock_ticket');
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -209,9 +223,9 @@ export function SecretAdminPortal() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-[#070B14] text-slate-200 flex flex-col">
+    <div className="min-h-screen w-full bg-[#080512] text-slate-200 flex flex-col">
       {/* ================= TOP COMMAND BAR ================= */}
-      <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-[#070B14]/95 backdrop-blur">
+      <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-[#080512]/95 backdrop-blur">
         <div className="w-full px-4 sm:px-6 flex items-center justify-between gap-3 h-16">
           <div className="flex items-center gap-3 min-w-0">
             <button
@@ -224,15 +238,19 @@ export function SecretAdminPortal() {
             </button>
 
             <Link to="/" className="flex items-center gap-2.5 shrink-0">
-              <span className="h-9 w-9 rounded-xl bg-sky-500 text-slate-950 font-black flex items-center justify-center">
-                U
+              <span className="relative h-9 w-9 rounded-xl overflow-hidden ring-1 ring-violet-400/40 shrink-0">
+                <img
+                  src="/brand/cube-tunnel-256.png"
+                  alt="ShakeelAdminProDownloader"
+                  className="h-9 w-9 object-cover"
+                />
               </span>
               <span className="hidden sm:block leading-tight">
                 <span className="block text-sm font-extrabold text-white tracking-tight">
-                  UltraDownloader
+                  ShakeelAdminProDownloader
                 </span>
-                <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-sky-400">
-                  Admin Console
+                <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-fuchsia-400">
+                  Pro Security · Command Center
                 </span>
               </span>
             </Link>
@@ -264,9 +282,9 @@ export function SecretAdminPortal() {
               onClick={() => setStreamOpen((v) => !v)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-200"
             >
-              <Radio size={13} className="text-sky-400" />
+              <Radio size={13} className="text-fuchsia-400" />
               <span className="hidden sm:inline">Live Feed</span>
-              <span className="rounded bg-sky-500/15 px-1.5 text-[10px] font-extrabold text-sky-300">
+              <span className="rounded bg-fuchsia-500/15 px-1.5 text-[10px] font-extrabold text-fuchsia-300">
                 {liveCards.length}
               </span>
             </button>
@@ -282,7 +300,7 @@ export function SecretAdminPortal() {
 
             <Link
               to="/"
-              className="hidden sm:inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 px-3 text-xs font-bold text-sky-300"
+              className="hidden sm:inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 px-3 text-xs font-bold text-fuchsia-300"
             >
               <ExternalLink size={13} />
               <span>Public Site</span>
@@ -308,7 +326,7 @@ export function SecretAdminPortal() {
           transition={{ duration: 0.2 }}
           className={`${
                 navOpen ? 'flex' : 'hidden lg:flex'
-          } fixed lg:static inset-y-16 left-0 z-30 w-64 shrink-0 flex-col border-r border-slate-800/80 bg-[#090E1B] p-3 gap-1 overflow-y-auto`}
+          } fixed lg:static inset-y-16 left-0 z-30 w-64 shrink-0 flex-col border-r border-slate-800/80 bg-[#0B0718] p-3 gap-1 overflow-y-auto`}
         >
               <p className="px-3 pt-2 pb-2 text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-600">
                 Workspace
@@ -333,10 +351,10 @@ export function SecretAdminPortal() {
                       <motion.span
                         layoutId="adminNavActive"
                         transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                        className="absolute inset-0 rounded-xl bg-sky-500/12 border border-sky-500/30"
+                        className="absolute inset-0 rounded-xl bg-fuchsia-500/12 border border-fuchsia-500/35"
                       />
                     )}
-                    <Icon size={16} className={`relative z-10 ${active ? 'text-sky-400' : ''}`} />
+                    <Icon size={16} className={`relative z-10 ${active ? 'text-fuchsia-400' : ''}`} />
                     <span className="relative z-10 min-w-0">
                       <span className="block text-xs font-bold truncate">{item.label}</span>
                       <span className="block text-[10px] text-slate-500 truncate">{item.hint}</span>
@@ -388,7 +406,7 @@ export function SecretAdminPortal() {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.04 * index, duration: 0.24 }}
-                    className="rounded-xl border border-slate-800 bg-[#0B1220] px-4 py-3"
+                    className="rounded-xl border border-slate-800 bg-[#0D0820] px-4 py-3"
                   >
                     <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
                       {kpi.label}

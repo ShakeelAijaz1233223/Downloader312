@@ -1,6 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
-import Hls from 'hls.js';
 import { Play, Volume2, VolumeX, Maximize2 } from 'lucide-react';
+
+// hls.js (~600 kB) is only needed for .m3u8 streams, so it is loaded on demand
+// instead of blocking the first paint of every page.  MP4/WebM previews never
+// download it at all.
+let hlsModulePromise = null;
+function loadHls() {
+  if (!hlsModulePromise) {
+    hlsModulePromise = import('hls.js')
+      .then((mod) => mod.default || mod)
+      .catch(() => null);
+  }
+  return hlsModulePromise;
+}
 
 export function OnlineVideoPlayer({
   streamUrl,
@@ -30,7 +42,26 @@ export function OnlineVideoPlayer({
       streamUrl.includes('/stream/terabox-hls') ||
       /[?&]url=[^&]*\.m3u8/i.test(streamUrl);
 
-    if (isHlsStream && Hls.isSupported()) {
+    if (!isHlsStream) {
+      videoEl.src = streamUrl;
+      if (autoPlay) videoEl.play().catch(() => {});
+      return () => {
+        videoEl.removeAttribute('src');
+        videoEl.load?.();
+      };
+    }
+
+    let cancelled = false;
+
+    const attachHls = async () => {
+      const Hls = await loadHls();
+      if (cancelled) return;
+      if (!Hls || !Hls.isSupported()) {
+        videoEl.src = streamUrl;
+        if (autoPlay) videoEl.play().catch(() => {});
+        return;
+      }
+
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
@@ -63,12 +94,12 @@ export function OnlineVideoPlayer({
         hls.destroy();
         hlsRef.current = null;
       });
-    } else {
-      videoEl.src = streamUrl;
-      if (autoPlay) videoEl.play().catch(() => {});
-    }
+    };
+
+    attachHls();
 
     return () => {
+      cancelled = true;
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;

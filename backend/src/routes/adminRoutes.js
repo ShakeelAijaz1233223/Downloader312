@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { v4 as uuidv4 } from 'uuid';
 import { ENV } from '../config/env.js';
 import { sqlQuery, writeSecurityAuditLog } from '../db/database.js';
@@ -48,24 +49,62 @@ import {
   loadSystemSettingsFromDb,
   loadWebsitesFromDb,
 } from './publicRoutes.js';
+import {
+  ADMIN_BRAND,
+  ADMIN_MAX_FAILED_ATTEMPTS,
+  ADMIN_PIN_LENGTH,
+  ADMIN_ROUTE_SLUGS,
+  getAdminLoginHints,
+} from '../data/adminIdentity.js';
+import { syncMasterAdminIdentity } from '../db/database.js';
 
 export const adminRouter = express.Router();
 
 adminRouter.use(enforceAdminIpAllowlist);
+
+// Brute-force throttle for the two secret gates (independent from the public
+// limiter so a normal visitor can never exhaust the admin budget).
+const adminAuthLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => ENV.NODE_ENV === 'test',
+  message: {
+    success: false,
+    error: { code: 'ADMIN_RATE_LIMITED', message: 'Too many verification attempts. Wait one minute.' },
+  },
+});
+
+// Public (secret-URL protected) login screen description — no secrets inside.
+adminRouter.get('/auth/hints', (_req, res) => {
+  return sendSuccess(res, {
+    ...getAdminLoginHints(),
+    brand: ADMIN_BRAND,
+    pinLength: ADMIN_PIN_LENGTH,
+    routes: ADMIN_ROUTE_SLUGS.map((slug) => `/${slug}`),
+  });
+});
 
 // ============================================================================
 // GATE 1: SECRET DIGITAL KEYPAD PIN VERIFICATION (3 WRONG TRIES = 30M BAN!)
 // ============================================================================
 adminRouter.post(
   '/padlock/verify',
+  adminAuthLimiter,
   asyncHandler(async (req, res) => {
     await assertAdminIpNotBanned(req.clientIp);
 
-    const submittedPin = String(req.body?.pin || '').trim();
+    const submittedPin = String(req.body?.pin || '').replace(/\s+/g, '');
+    if (!/^\d{4,32}$/.test(submittedPin)) {
+      throw new AppError(400, 'INVALID_PIN_FORMAT', 'The digital keypad PIN contains digits only.');
+    }
+
     const admins = await sqlQuery('SELECT * FROM admin_users LIMIT 1');
     const masterAdmin = admins[0];
 
-    const pinValid = masterAdmin && (await verifySecretHash(submittedPin, masterAdmin.pin_hash));
+    const pinValid =
+      Boolean(masterAdmin) && (await verifySecretHash(submittedPin, masterAdmin.pin_hash));
     if (!pinValid) {
       await recordAdminFailureAndBanOnThirdStrike(
         req.clientIp,
@@ -98,6 +137,7 @@ adminRouter.post(
 // ============================================================================
 adminRouter.post(
   '/auth/login',
+  adminAuthLimiter,
   requirePadlockGate1Ticket,
   asyncHandler(async (req, res) => {
     await assertAdminIpNotBanned(req.clientIp);
@@ -108,14 +148,23 @@ adminRouter.post(
     const password = String(req.body?.password || '');
     const totpCode = String(req.body?.totpCode || '').trim();
 
+    if (!identifier || !password || !totpCode) {
+      throw new AppError(
+        400,
+        'CREDENTIALS_REQUIRED',
+        'E-mail, master password and the 6-digit Pro-Security code are all required.'
+      );
+    }
+
     const rows = await sqlQuery(
       'SELECT * FROM admin_users WHERE LOWER(email) = ? OR LOWER(username) = ? LIMIT 1',
       [identifier, identifier]
     );
     const adminRow = rows[0];
 
-    const passwordOk = adminRow && (await verifySecretHash(password, adminRow.password_hash));
-    const totpOk = adminRow && verifyTotp2FA(totpCode, adminRow.totp_secret);
+    const passwordOk = Boolean(adminRow) && (await verifySecretHash(password, adminRow.password_hash));
+    // verifyTotp2FA is strict: an empty code can never pass.
+    const totpOk = Boolean(adminRow) && verifyTotp2FA(totpCode, adminRow.totp_secret);
 
     if (!passwordOk || !totpOk) {
       await recordAdminFailureAndBanOnThirdStrike(
@@ -162,6 +211,48 @@ adminRouter.post('/auth/logout', (_req, res) => {
   res.clearCookie('ud_padlock_ticket', { path: '/' });
   return sendSuccess(res, { loggedOut: true });
 });
+
+// Real session check — the console never "unlocks itself" because a stale
+// sessionStorage flag survived a reload.
+adminRouter.get(
+  '/auth/session',
+  asyncHandler(async (req, res) => {
+    const headerVal = String(req.headers['x-admin-token'] || '');
+    const rawToken =
+      (headerVal.startsWith('Bearer ') ? headerVal.slice(7) : headerVal) ||
+      req.cookies?.ud_admin_jwt ||
+      req.query?.adminToken;
+    if (!rawToken) {
+      return sendSuccess(res, { authenticated: false }, 200);
+    }
+    try {
+      const { verifyAdminAccessToken } = await import('../security/cryptoVault.js');
+      const claims = verifyAdminAccessToken(rawToken);
+      return sendSuccess(res, {
+        authenticated: true,
+        admin: {
+          id: claims.sub,
+          email: claims.email,
+          fullName: claims.fullName,
+          role: claims.role,
+        },
+        brand: ADMIN_BRAND,
+      });
+    } catch {
+      return sendSuccess(res, { authenticated: false }, 200);
+    }
+  })
+);
+
+// Owner-triggered credential re-sync (re-hashes .env values into SQL).
+adminRouter.post(
+  '/auth/sync-identity',
+  requirePadlockGate1Ticket,
+  asyncHandler(async (req, res) => {
+    const result = await syncMasterAdminIdentity({ force: true });
+    return sendSuccess(res, { ...result, pinLength: ADMIN_PIN_LENGTH, brand: ADMIN_BRAND });
+  })
+);
 
 // ============================================================================
 // ALL ROUTES BELOW REQUIRE VERIFIED SUPER-ADMIN SESSION!

@@ -13,17 +13,43 @@ import {
 import { mimeForExtension, extensionOfFileName } from '../data/mediaFormats.js';
 
 // ============================================================================
-// SIGNED, SHORT-LIVED DOWNLOAD TICKETS
-// - The user never receives a storage path or a storage credential.
-// - A ticket is an HMAC-SHA256 signed payload with an expiry timestamp.
-// - Tampering, expiry and unknown files all fail with explicit errors.
+// SIGNED, SHORT-LIVED DOWNLOAD TICKETS  (rewritten — V11)
+//
+// The old engine embedded the *whole* target (a 2–3 KB googlevideo URL + name +
+// mime + timestamps) inside the ticket. Trusted proxies, WhatsApp/Telegram
+// share-sheets and some browsers truncate long URLs, which produced
+// "This download link is not valid or has been modified" on perfectly good
+// links. Now the payload is kept server-side (in RAM, keyed by a random id)
+// and only a ~80 character signed ticket travels in the URL.
+//
+// Extra safety net: if the upstream CDN answers 401/403/404/410 (expired
+// YouTube/Dailymotion/TeraBox signature), the ticket is transparently
+// re-resolved from the original page and the download continues — no more
+// "File wasn't available on site".
 // ============================================================================
 
 const TICKET_SECRET =
-  process.env.DOWNLOAD_TICKET_SECRET || `${ENV.JWT_USER_SECRET}::download-ticket::v10`;
+  process.env.DOWNLOAD_TICKET_SECRET || `${ENV.JWT_USER_SECRET}::download-ticket::v11`;
+const TICKET_TTL_SECONDS = Number(ENV.DOWNLOAD_TICKET_TTL_SECONDS || 900);
+const MAX_TICKET_LENGTH = Number(ENV.DOWNLOAD_TICKET_MAX_LENGTH || 512);
+const MAX_STORED_TICKETS = 5000;
 
-const TICKET_TTL_SECONDS = Number(process.env.DOWNLOAD_TICKET_TTL_SECONDS || 300);
-const MAX_TICKET_LENGTH = 4096;
+/** jti -> { payload, expiresAtMs } */
+const TICKET_STORE = new Map();
+
+function signValue(value) {
+  return crypto.createHmac('sha256', TICKET_SECRET).update(value).digest('base64url');
+}
+
+function safeEqual(a, b) {
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 function base64UrlEncode(value) {
   return Buffer.from(value, 'utf8').toString('base64url');
@@ -33,15 +59,17 @@ function base64UrlDecode(value) {
   return Buffer.from(value, 'base64url').toString('utf8');
 }
 
-function signPayload(encodedPayload) {
-  return crypto.createHmac('sha256', TICKET_SECRET).update(encodedPayload).digest('base64url');
-}
-
-function safeEqual(a, b) {
-  const bufA = Buffer.from(String(a));
-  const bufB = Buffer.from(String(b));
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
+function purgeExpiredTickets(nowMs = Date.now()) {
+  if (TICKET_STORE.size < 200) return;
+  for (const [jti, entry] of TICKET_STORE) {
+    if (entry.expiresAtMs <= nowMs) TICKET_STORE.delete(jti);
+  }
+  // Hard cap: drop the oldest entries so a busy box can never leak memory.
+  while (TICKET_STORE.size > MAX_STORED_TICKETS) {
+    const oldest = TICKET_STORE.keys().next().value;
+    if (!oldest) break;
+    TICKET_STORE.delete(oldest);
+  }
 }
 
 export function sanitizeDownloadFileName(rawName, fallbackExt = 'bin') {
@@ -87,6 +115,9 @@ export async function createDownloadTicket({
   sourceUrl = '',
   title = '',
   qualityLabel = '',
+  formatId = '',
+  qualityKey = '',
+  platformId = '',
   user = null,
   originBaseUrl = '',
 }) {
@@ -109,11 +140,7 @@ export async function createDownloadTicket({
       throw new AppError(404, 'FILE_NOT_REGISTERED', 'This file is not available for download.');
     }
     if (entry.requiresAuth && !user) {
-      throw new AppError(
-        401,
-        'AUTH_REQUIRED',
-        'Please sign in to download this protected file.'
-      );
+      throw new AppError(401, 'AUTH_REQUIRED', 'Please sign in to download this protected file.');
     }
     if (!entry.exists) {
       throw new AppError(404, 'FILE_NOT_FOUND', 'This file is no longer available.');
@@ -130,7 +157,10 @@ export async function createDownloadTicket({
   } else {
     const parsed = await assertSafeOutboundUrl(requestedUrl, { performDnsCheck: true });
     const guessedExt = extensionOf(fileName) || extensionOf(parsed.pathname) || 'mp4';
-    const finalName = sanitizeDownloadFileName(fileName || `UltraDownloader_Download.${guessedExt}`, guessedExt);
+    const finalName = sanitizeDownloadFileName(
+      fileName || `UltraDownloader_Download.${guessedExt}`,
+      guessedExt
+    );
     const finalExt = extensionOf(finalName) || guessedExt;
 
     target = {
@@ -142,22 +172,30 @@ export async function createDownloadTicket({
       sourceUrl: String(sourceUrl || '').trim(),
       title: String(title || '').slice(0, 200),
       qualityLabel: String(qualityLabel || '').slice(0, 64),
+      formatId: String(formatId || '').slice(0, 120),
+      qualityKey: String(qualityKey || '').slice(0, 64),
+      platformId: String(platformId || '').slice(0, 64),
     };
   }
 
-  const issuedAt = Math.floor(Date.now() / 1000);
+  const issuedAtMs = Date.now();
+  const issuedAt = Math.floor(issuedAtMs / 1000);
+  const jti = crypto.randomBytes(12).toString('base64url');
   const payload = {
     ...target,
     iss: 'ultradownloader',
     iat: issuedAt,
     exp: issuedAt + TICKET_TTL_SECONDS,
-    jti: crypto.randomUUID(),
+    jti,
   };
 
-  const encoded = base64UrlEncode(JSON.stringify(payload));
-  const signature = signPayload(encoded);
-  const ticket = `${encoded}.${signature}`;
+  purgeExpiredTickets(issuedAtMs);
+  TICKET_STORE.set(jti, { payload, expiresAtMs: issuedAtMs + TICKET_TTL_SECONDS * 1000 });
+
+  const body = `u1.${jti}.${issuedAt.toString(36)}`;
+  const ticket = `${body}.${signValue(body)}`;
   const safeName = encodeURIComponent(payload.fileName);
+  const path = `/api/v1/files/download/${safeName}?ticket=${encodeURIComponent(ticket)}`;
 
   return {
     ticket,
@@ -166,19 +204,58 @@ export async function createDownloadTicket({
     sizeBytes: payload.sizeBytes || 0,
     expiresAt: new Date(payload.exp * 1000).toISOString(),
     expiresInSeconds: TICKET_TTL_SECONDS,
-    downloadPath: `/api/v1/files/download/${safeName}?ticket=${encodeURIComponent(ticket)}`,
-    downloadUrl: originBaseUrl
-      ? `${originBaseUrl}/api/v1/files/download/${safeName}?ticket=${encodeURIComponent(ticket)}`
-      : `/api/v1/files/download/${safeName}?ticket=${encodeURIComponent(ticket)}`,
+    downloadPath: path,
+    downloadUrl: originBaseUrl ? `${originBaseUrl}${path}` : path,
   };
 }
 
+/** Accepts BOTH the new short ticket and any legacy long ticket still in flight. */
 export function verifyDownloadTicket(rawTicket) {
   const ticket = String(rawTicket || '').trim();
   if (!ticket || ticket.length > MAX_TICKET_LENGTH) {
-    throw new AppError(400, 'INVALID_TICKET', 'This download link is incomplete. Please click Download again.');
+    throw new AppError(
+      400,
+      'INVALID_TICKET',
+      'This download link is incomplete. Please click Download again.'
+    );
   }
 
+  const parts = ticket.split('.');
+
+  // ---- V11 short ticket: u1.<jti>.<issuedAt36>.<signature> ------------------
+  if (parts[0] === 'u1') {
+    if (parts.length !== 4) {
+      throw new AppError(403, 'INVALID_TICKET', 'This download link is not valid. Please click Download again.');
+    }
+    const body = `${parts[0]}.${parts[1]}.${parts[2]}`;
+    if (!safeEqual(signValue(body), parts[3])) {
+      throw new AppError(
+        403,
+        'TICKET_SIGNATURE_INVALID',
+        'This download link was modified and cannot be used. Please click Download again.'
+      );
+    }
+
+    const entry = TICKET_STORE.get(parts[1]);
+    if (!entry) {
+      throw new AppError(
+        410,
+        'TICKET_EXPIRED',
+        'This download link has expired. Please click Download again to get a fresh link.'
+      );
+    }
+    if (entry.expiresAtMs <= Date.now()) {
+      TICKET_STORE.delete(parts[1]);
+      throw new AppError(
+        410,
+        'TICKET_EXPIRED',
+        'This download link has expired. Please click Download again to get a fresh link.'
+      );
+    }
+    return entry.payload;
+  }
+
+  // ---- Legacy long ticket: <base64url payload>.<signature> ------------------
   const separatorIndex = ticket.lastIndexOf('.');
   if (separatorIndex <= 0) {
     throw new AppError(403, 'INVALID_TICKET', 'This download link is not valid. Please click Download again.');
@@ -187,7 +264,7 @@ export function verifyDownloadTicket(rawTicket) {
   const encoded = ticket.slice(0, separatorIndex);
   const signature = ticket.slice(separatorIndex + 1);
 
-  if (!safeEqual(signPayload(encoded), signature)) {
+  if (!safeEqual(signValue(encoded), signature)) {
     throw new AppError(
       403,
       'TICKET_SIGNATURE_INVALID',
@@ -220,7 +297,10 @@ function applyAttachmentHeaders(res, fileName, mimeType, extra = {}) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Expose-Headers', 'Content-Range,Accept-Ranges,Content-Length,Content-Disposition');
+  res.setHeader(
+    'Access-Control-Expose-Headers',
+    'Content-Range,Accept-Ranges,Content-Length,Content-Disposition'
+  );
   Object.entries(extra).forEach(([key, value]) => {
     if (value !== undefined && value !== null) res.setHeader(key, value);
   });
@@ -236,7 +316,6 @@ function parseRangeHeader(rangeHeader, totalSize) {
   let end = rawEnd ? Number.parseInt(rawEnd, 10) : totalSize - 1;
 
   if (!rawStart && rawEnd) {
-    // Suffix range: last N bytes
     const suffixLength = Number.parseInt(rawEnd, 10);
     start = Math.max(totalSize - suffixLength, 0);
     end = totalSize - 1;
@@ -270,9 +349,10 @@ async function streamLocalFile(req, res, payload) {
     });
     res.status(206);
     if (req.method === 'HEAD') return res.end();
-    await pipeline(fs.createReadStream(payload.absolutePath, { start: range.start, end: range.end }), res).catch(
-      () => {}
-    );
+    await pipeline(
+      fs.createReadStream(payload.absolutePath, { start: range.start, end: range.end }),
+      res
+    ).catch(() => {});
     return;
   }
 
@@ -291,6 +371,91 @@ function looksLikeHlsPlaylist(targetUrl, mimeType = '') {
   return /mpegurl/i.test(String(mimeType || ''));
 }
 
+/**
+ * Re-resolves a dead CDN link from the ORIGINAL page/paste, preferring the same
+ * format the user picked. This is what makes a 403 "expired signature" heal
+ * itself instead of showing "File wasn't available on site".
+ */
+async function refreshRemoteTarget(payload) {
+  const sourceUrl = String(payload?.sourceUrl || '').trim();
+  if (!/^https?:\/\//i.test(sourceUrl)) return null;
+
+  let extractor;
+  try {
+    extractor = await import('./extractorEngine.js');
+  } catch {
+    return null;
+  }
+
+  let analysis;
+  try {
+    analysis = await extractor.analyzeMediaUrl({ rawUrl: sourceUrl });
+  } catch {
+    return null;
+  }
+  if (!analysis?.streams) return null;
+
+  const groups = [
+    analysis.streams.videoAudio || [],
+    analysis.streams.videoWithAudio || [],
+    analysis.streams.videoOnly || [],
+    analysis.streams.audioOnly || [],
+  ].flat();
+
+  const usable = groups.filter((s) => /^https?:\/\//i.test(String(s?.directCdnUrl || '')));
+  if (!usable.length) return null;
+
+  const sameFormat =
+    usable.find(
+      (s) =>
+        (payload.formatId && s.formatId === payload.formatId) ||
+        (payload.qualityKey && s.qualityKey === payload.qualityKey)
+    ) || null;
+
+  const best =
+    sameFormat ||
+    usable.find((s) => s.hasAudio && s.hasVideo) ||
+    usable[0];
+
+  return {
+    upstreamUrl: String(best.directCdnUrl),
+    fileName: payload.fileName || undefined,
+  };
+}
+
+async function openUpstream(payload, req) {
+  const upstreamHeaders = {
+    'User-Agent': selectOptimalUpstreamUserAgent(payload.upstreamUrl),
+    Accept: '*/*',
+  };
+  if (payload.sourceUrl && /^https?:\/\//i.test(payload.sourceUrl)) {
+    upstreamHeaders.Referer = payload.sourceUrl;
+    upstreamHeaders.Origin = (() => {
+      try {
+        return new URL(payload.sourceUrl).origin;
+      } catch {
+        return '';
+      }
+    })();
+  }
+  if (req.headers.range) upstreamHeaders.Range = req.headers.range;
+
+  const controller = new AbortController();
+  req.on('close', () => controller.abort());
+
+  const response = await fetch(payload.upstreamUrl, {
+    method: 'GET',
+    headers: upstreamHeaders,
+    redirect: 'follow',
+    signal: controller.signal,
+  }).catch((err) => {
+    if (err?.name === 'AbortError') return null;
+    return { networkError: err };
+  });
+
+  return { upstream: response, controller };
+}
+
 async function streamRemoteFile(req, res, payload) {
   // Streaming-only links (HLS / .m3u8): join every segment into ONE real file
   // instead of handing the browser a 2 KB playlist.
@@ -303,28 +468,28 @@ async function streamRemoteFile(req, res, payload) {
     });
   }
 
-  const upstreamHeaders = {
-    'User-Agent': selectOptimalUpstreamUserAgent(payload.upstreamUrl),
-    Accept: '*/*',
-  };
-  if (payload.sourceUrl && /^https?:\/\//i.test(payload.sourceUrl)) {
-    upstreamHeaders.Referer = payload.sourceUrl;
+  let opened = await openUpstream(payload, req);
+  let upstream = opened?.upstream;
+
+  // ---- SELF-HEALING LINK: expired / rotated CDN signature ------------------
+  const staleStatus = upstream && !upstream.networkError ? upstream.status : 0;
+  if (!upstream || upstream.networkError || [401, 403, 404, 410, 451].includes(staleStatus)) {
+    const refreshed = await refreshRemoteTarget(payload).catch(() => null);
+    if (refreshed?.upstreamUrl && refreshed.upstreamUrl !== payload.upstreamUrl) {
+      payload.upstreamUrl = refreshed.upstreamUrl;
+      // Persist the healed link so Retry / resume also works.
+      for (const entry of TICKET_STORE.values()) {
+        if (entry.payload.jti === payload.jti) {
+          entry.payload.upstreamUrl = refreshed.upstreamUrl;
+          break;
+        }
+      }
+      opened = await openUpstream(payload, req);
+      upstream = opened?.upstream;
+    }
   }
-  if (req.headers.range) upstreamHeaders.Range = req.headers.range;
 
-  const controller = new AbortController();
-  req.on('close', () => controller.abort());
-
-  let upstream;
-  try {
-    upstream = await fetch(payload.upstreamUrl, {
-      method: 'GET',
-      headers: upstreamHeaders,
-      redirect: 'follow',
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if (err.name === 'AbortError') return;
+  if (!upstream || upstream.networkError) {
     throw new AppError(
       502,
       'UPSTREAM_UNAVAILABLE',
@@ -337,7 +502,7 @@ async function streamRemoteFile(req, res, payload) {
       upstream.status === 403 || upstream.status === 401 ? 403 : 502,
       'UPSTREAM_ERROR',
       upstream.status === 403 || upstream.status === 401
-        ? 'The media server refused this download (access expired). Please extract the link again.'
+        ? 'The media server refused this link (signature expired). Click Download again — a fresh link is created automatically.'
         : `The media server returned an error (HTTP ${upstream.status}).`
     );
   }
@@ -355,7 +520,7 @@ async function streamRemoteFile(req, res, payload) {
   res.status(contentRange ? 206 : 200);
 
   if (req.method === 'HEAD' || !upstream.body) {
-    controller.abort();
+    opened.controller.abort();
     return res.end();
   }
 

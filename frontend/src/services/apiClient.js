@@ -395,6 +395,18 @@ export const UltraApi = {
   },
 
   // 5-Layer Secret Padlock Admin Auth
+  getAdminLoginHints() {
+    return apiRequest('/admin/auth/hints');
+  },
+
+  async getAdminSession() {
+    try {
+      return await apiRequest('/admin/auth/session');
+    } catch {
+      return { authenticated: false };
+    }
+  },
+
   async verifyPin(pin) {
     try {
       const data = await apiRequest('/admin/padlock/verify', {

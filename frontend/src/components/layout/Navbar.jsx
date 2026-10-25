@@ -327,14 +327,19 @@ export function Navbar() {
         <div className="w-full px-4 sm:px-8 xl:px-12 h-16 flex items-center justify-between gap-4">
           {/* Left: Brand Logo */}
           <Link to="/" className="flex items-center gap-3 shrink-0 group">
-            <span className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform">
-              <Zap size={20} strokeWidth={2.5} />
+            <span className="relative h-10 w-10 overflow-hidden rounded-xl ring-1 ring-violet-400/40 shadow-[0_6px_18px_rgba(139,92,246,0.35)] group-hover:scale-105 transition-transform">
+              <img
+                src="/brand/cube-tunnel-256.png"
+                alt="Cube tunnel brand mark"
+                className="h-10 w-10 object-cover"
+              />
+              <span className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-fuchsia-500/20 to-transparent" />
             </span>
             <div className="leading-tight">
               <div className="font-display font-extrabold text-base sm:text-lg text-slate-900 tracking-tight whitespace-nowrap">
-                Ultra<span className="text-blue-600">Downloader</span>
+                Ultra<span className="bg-gradient-to-r from-fuchsia-600 to-violet-600 bg-clip-text text-transparent">Downloader</span>
               </div>
-              <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600 whitespace-nowrap">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-violet-600 whitespace-nowrap">
                 Free · Fast · HD &amp; 4K Video Saver
               </div>
             </div>

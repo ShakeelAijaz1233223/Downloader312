@@ -29,6 +29,25 @@ export function AppSidebar() {
 
   return (
     <aside className="hidden xl:flex flex-col w-60 shrink-0 ud-card p-3.5 h-fit sticky top-20">
+      <div className="mb-3 flex items-center gap-2.5 px-2">
+        <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl ring-1 ring-violet-400/40">
+          <img
+            src="/brand/cube-tunnel-256.png"
+            alt="Downloader cube tunnel"
+            className="h-10 w-10 object-cover"
+            loading="lazy"
+          />
+          <span className="pointer-events-none absolute inset-0 rounded-xl bg-violet-500/10" />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-[11px] font-extrabold uppercase tracking-wider text-violet-700">
+            Pro Workspace
+          </span>
+          <span className="block truncate text-[10px] font-semibold text-slate-400">
+            cube-tunnel engine
+          </span>
+        </span>
+      </div>
       <p className="px-3 pb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
         Workspace Menu
       </p>
@@ -42,8 +61,8 @@ export function AppSidebar() {
               to={item.to}
               className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                 active
-                  ? 'bg-[#1D6FF2] text-white shadow-[0_6px_20px_rgba(29,111,242,0.4)]'
-                  : 'ud-text-secondary hover:bg-blue-500/10'
+                  ? 'bg-gradient-to-r from-fuchsia-600 to-violet-600 text-white shadow-[0_6px_20px_rgba(139,92,246,0.4)]'
+                  : 'ud-text-secondary hover:bg-violet-500/10'
               }`}
             >
               <span className="flex items-center gap-2.5">

@@ -38,7 +38,7 @@ const POPULAR_FEATURES = [
   },
   {
     title: 'Choose Your Quality',
-    desc: 'Pick Video + Sound (8K/4K/1080p MP4), Video Only (muted), or pure 320kbps MP3 audio.',
+    desc: 'Pick Video + Sound (8K/4K/1080p MP4), Video Only (muted), or real MP3 / M4A audio.',
     icon: Film,
     color: 'text-indigo-600 bg-indigo-50 border border-indigo-200',
   },
@@ -84,7 +84,7 @@ const HOW_STEPS = [
   {
     step: '03',
     title: 'Pick Quality & Speed Mode',
-    desc: 'Select 4K/1080p MP4 or 320kbps MP3 — at full speed or with a speed limit you choose.',
+    desc: 'Select any real MP4 quality or MP3 / M4A audio — at full speed or with a speed limit you choose.',
     icon: Sliders,
   },
   {

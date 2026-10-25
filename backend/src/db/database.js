@@ -4,13 +4,21 @@ import { spawn } from 'node:child_process';
 import mysql from 'mysql2/promise.js';
 import { ENV, BACKEND_ROOT } from '../config/env.js';
 import { logger } from '../utils/logger.js';
-import { hashSecret } from '../security/cryptoVault.js';
+import { hashSecret, verifySecretHash } from '../security/cryptoVault.js';
 import {
   PLATFORM_DEFINITIONS,
   DEFAULT_AD_WATERFALL,
   DEFAULT_SYSTEM_SETTINGS,
 } from '../data/platformDefinitions.js';
 import { updateRuntimeEnginePreferences } from '../services/trafficEngine.js';
+import {
+  ADMIN_EMAIL,
+  ADMIN_FULL_NAME,
+  ADMIN_PASSWORD,
+  ADMIN_PIN,
+  ADMIN_USERNAME,
+  buildAdminSeedRow,
+} from '../data/adminIdentity.js';
 
 // ============================================================================
 // HIGH-TRAFFIC SMART XAMPP MYSQL ENGINE V8.0
@@ -58,8 +66,8 @@ async function ensureStandbyMemoryInitialized() {
   standbyReadyPromise = (async () => {
     const now = new Date().toISOString();
     const [pinHash, passHash] = await Promise.all([
-      hashSecret('2580'),
-      hashSecret('UltraAdmin@2026'),
+      hashSecret(ADMIN_PIN),
+      hashSecret(ADMIN_PASSWORD || 'change-me-in-env'),
     ]);
 
     // Round-10 monetisation: five ready-to-fill ad placements
@@ -83,29 +91,15 @@ async function ensureStandbyMemoryInitialized() {
         seo_score: 100,
         created_at: now,
       },
-      {
-        id: 'site_adult_vault',
-        name: 'Dedicated 18+ Vault Hub',
-        domain: 'vault18.local',
-        content_mode: 'adult_18_only',
-        status: 'ACTIVE',
-        monthly_revenue: 0,
-        monthly_expense: 0,
-        seo_score: 100,
-        created_at: now,
-      },
     ];
 
     mem.admin_users = [
       {
-        id: 'admin-master-01',
-        username: 'superadmin',
-        email: 'admin@ultradownloader.pro',
-        full_name: 'Master Super-Admin',
-        password_hash: passHash,
-        pin_hash: pinHash,
-        totp_secret: 'JBSWY3DPEHPK3PXP',
-        role: 'super_admin',
+        ...buildAdminSeedRow({
+          pinHash,
+          passwordHash: passHash,
+          totpSecret: ENV.ADMIN_TOTP_SECRET,
+        }),
         last_login_at: null,
         created_at: now,
       },
@@ -234,6 +228,32 @@ async function ensureXamppSchemaImported(host, port) {
   }
 }
 
+// Hot-path indexes for the queries this app actually runs (idempotent).
+async function ensureHotIndexes(pool) {
+  const wanted = [
+    ['download_jobs', 'idx_dl_user_created', '(user_id, created_at)'],
+    ['download_jobs', 'idx_dl_platform', '(platform_id)'],
+    ['security_audit_logs', 'idx_audit_created', '(created_at)'],
+    ['analytics_events', 'idx_events_created', '(created_at)'],
+    ['saved_vault_videos', 'idx_vault_platform', '(platform_id)'],
+    ['users', 'idx_users_email', '(email)'],
+    ['seo_keywords', 'idx_seo_slug', '(slug)'],
+  ];
+  for (const [table, indexName, columns] of wanted) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT 1 FROM information_schema.STATISTICS
+          WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1`,
+        [ENV.DB_NAME, table, indexName]
+      );
+      if (rows.length) continue;
+      await pool.query(`CREATE INDEX \`${indexName}\` ON \`${table}\` ${columns}`);
+    } catch {
+      // A missing table or a duplicate index is never fatal.
+    }
+  }
+}
+
 async function syncAllPlatformsAndPrefsToMysql(pool) {
   try {
     const now = new Date().toISOString();
@@ -285,6 +305,8 @@ async function syncAllPlatformsAndPrefsToMysql(pool) {
       );
     }
 
+    await ensureHotIndexes(pool);
+
     // Hydrate runtime engine preferences if previously saved in MySQL `system_settings`
     const [prefRows] = await pool.execute(
       'SELECT setting_json FROM system_settings WHERE setting_key = ?',
@@ -328,6 +350,104 @@ async function flushStandbyMutationsToMysql(pool) {
   }
 }
 
+// ============================================================================
+// MASTER-ADMIN MIGRATION — the credentials in `.env` are the single source of
+// truth. On every boot (and after a MySQL reconnect) the master row is brought
+// in line with them, so changing the password/PIN never requires manual SQL.
+// ============================================================================
+let lastAdminIdentitySyncAt = 0;
+
+export async function syncMasterAdminIdentity({ force = false } = {}) {
+  await ensureStandbyMemoryInitialized();
+  const nowMs = Date.now();
+  if (!force && nowMs - lastAdminIdentitySyncAt < 60_000) {
+    return { synced: false, reason: 'throttled' };
+  }
+  lastAdminIdentitySyncAt = nowMs;
+
+  const [pinHash, passwordHash] = await Promise.all([
+    hashSecret(ADMIN_PIN),
+    hashSecret(ADMIN_PASSWORD || 'change-me-in-env'),
+  ]);
+  const seed = buildAdminSeedRow({
+    pinHash,
+    passwordHash,
+    totpSecret: ENV.ADMIN_TOTP_SECRET,
+  });
+  const nowIso = new Date().toISOString();
+
+  // 1. Standby / RAM copy (used when XAMPP MySQL is not up yet)
+  if (!mem.admin_users.length) {
+    mem.admin_users = [{ ...seed, last_login_at: null, created_at: nowIso }];
+  } else {
+    const row = mem.admin_users[0];
+    mem.admin_users[0] = {
+      ...row,
+      ...seed,
+      id: row.id || seed.id,
+      last_login_at: row.last_login_at || null,
+      created_at: row.created_at || nowIso,
+    };
+  }
+
+  if (!mysqlPool) return { synced: true, driver: 'memory' };
+
+  try {
+    const [rows] = await mysqlPool.execute(
+      'SELECT id, username, email, full_name, password_hash, pin_hash FROM admin_users LIMIT 1'
+    );
+    const row = rows[0];
+
+    if (!row) {
+      await mysqlPool.execute(
+        `INSERT INTO admin_users
+          (id, username, email, full_name, password_hash, pin_hash, totp_secret, role, last_login_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'super_admin', NULL, ?)`,
+        [
+          seed.id,
+          seed.username,
+          seed.email,
+          seed.full_name,
+          seed.password_hash,
+          seed.pin_hash,
+          seed.totp_secret,
+          nowIso,
+        ]
+      );
+    } else {
+      const pinOk = await verifySecretHash(ADMIN_PIN, row.pin_hash).catch(() => false);
+      const passOk = await verifySecretHash(ADMIN_PASSWORD || 'change-me-in-env', row.password_hash).catch(
+        () => false
+      );
+      const identityChanged =
+        String(row.email || '').toLowerCase() !== ADMIN_EMAIL ||
+        String(row.username || '') !== ADMIN_USERNAME ||
+        String(row.full_name || '') !== ADMIN_FULL_NAME;
+      if (!pinOk || !passOk || identityChanged) {
+        await mysqlPool.execute(
+          `UPDATE admin_users
+              SET username = ?, email = ?, full_name = ?, password_hash = ?, pin_hash = ?, totp_secret = ?
+            WHERE id = ?`,
+          [
+            ADMIN_USERNAME,
+            ADMIN_EMAIL,
+            ADMIN_FULL_NAME,
+            seed.password_hash,
+            seed.pin_hash,
+            seed.totp_secret,
+            row.id,
+          ]
+        );
+        logger.info('Master Super-Admin credentials re-synced from .env');
+      }
+    }
+    return { synced: true, driver: 'mysql', email: ADMIN_EMAIL };
+  } catch (err) {
+    logger.warn({ err }, 'Master admin identity sync warning');
+    return { synced: false, driver: 'mysql', error: String(err?.message || err) };
+  }
+}
+
 async function tryConnectXamppMysqlOnce() {
   const candidatePorts = [...new Set([Number(ENV.DB_PORT || 3306), 3306, 3307, 3308])];
 
@@ -359,6 +479,7 @@ async function tryConnectXamppMysqlOnce() {
 
       await syncAllPlatformsAndPrefsToMysql(candidatePool);
       await flushStandbyMutationsToMysql(candidatePool);
+      await syncMasterAdminIdentity({ force: true }).catch(() => {});
 
       mysqlPool = candidatePool;
       activeDbPort = port;
@@ -413,6 +534,10 @@ export async function initDatabase() {
     if (startedXampp) {
       connected = await tryConnectXamppMysqlOnce();
     }
+  }
+
+  if (connected) {
+    await syncMasterAdminIdentity({ force: true });
   }
 
   if (!connected) {
