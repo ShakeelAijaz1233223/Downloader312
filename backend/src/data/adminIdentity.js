@@ -12,11 +12,11 @@ export const ADMIN_BRAND = 'ShakeelAdminProDownloader';
 // The secret console slug stays exactly `vault-control-x9p4`; the Pro-Security
 // segment can be placed either in front of it or after it, so all three URLs
 // open the same command center (and the old bookmark keeps working forever).
+// Keep this list in sync with ADMIN_ROUTE_PATHS in frontend/src/App.jsx.
 export const ADMIN_ROUTE_SLUGS = [
   'vault-control-x9p4',
   'pro-security/vault-control-x9p4',
   'vault-control-x9p4/pro-security',
-  'pro-security/vault-control-x9p4/pro-downloader',
 ];
 
 export const ADMIN_PRIMARY_ROUTE = '/vault-control-x9p4';

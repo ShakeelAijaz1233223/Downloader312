@@ -866,7 +866,7 @@ export function SettingsPage() {
                   >
                     <option value="auto">Auto — best real quality for THIS video</option>
                     <option value="2160p">2160p 4K Ultra HD (only if the source has it)</option>
-                    <option value="1440p">1440p 2K QHD</option>
+                    <option value="1440p">1440p 2K QHD (only if the source has it)</option>
                     <option value="1080p">1080p Full HD (Recommended)</option>
                     <option value="720p">720p HD Fast</option>
                     <option value="audio">Audio only — best real MP3 / M4A track</option>

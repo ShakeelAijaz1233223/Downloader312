@@ -206,7 +206,7 @@ export const UltraApi = {
     });
   },
 
-  // Live Zero-DB Paste Capture, Search, Analysis & 16x IDM Turbo Downloads
+  // Live Zero-DB paste capture, search and analysis
   async silentPasteCapture(rawUrl, sourceContext = 'hero_input') {
     const check = validateSafeExternalUrl(rawUrl);
     if (!check.ok) {

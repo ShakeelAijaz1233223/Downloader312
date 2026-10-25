@@ -34,6 +34,11 @@ http://localhost:5173/vault-control-x9p4/pro-security
 
 Stealth keyboard shortcut from any page: **Ctrl + Shift + Alt + U**
 
+Brand: the padlock screen, navbar and sidebar all use the same isometric
+purple cube-tunnel tile (`frontend/public/brand/cube-tunnel-256.png`, with a
+128 px variant for small slots). No other logo files are shipped — one asset,
+one look.
+
 ### Credentials (stored as bcrypt hashes in SQL, plaintext only in `backend/.env`)
 
 | Step | Field | Value |
