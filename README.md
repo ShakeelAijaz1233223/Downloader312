@@ -22,6 +22,45 @@ guides**, and a **Pro-Security** admin console.
 
 ---
 
+## 1b. V12 — what changed in this round
+
+| # | Problem reported | Real fix |
+|---|------------------|----------|
+| 1 | "This download link is not valid or has been modified" every time | The Retry path now sends `refreshSource: true`. The backend re-resolves the original page and mints a ticket around a **seconds-old** CDN link. The client retries up to **3 times** with backoff instead of giving up after one. |
+| 2 | "File wasn't available on site" in Chrome's download shelf | The backend now walks **up to 6 ranked candidate streams** from a fresh re-resolve (same format first, then same height, then everything else) and persists the healed URL into the live ticket. |
+| 3 | Fake 2160p / 1440p / 4K rows with copy-pasted sizes | Those ladders no longer exist in the codebase. The picker only lists streams the source really returned, and `auto` means *best real stream with sound for THIS video*. |
+| 4 | "Whatever quality, convert to Ultra HD / MP3" | New **auto-convert engine** (`mediaConverter.js`): real job queue, real progress, real cancel, real MP3 transcode when FFmpeg exists. Without FFmpeg it still delivers the best real stream (MP4/M4A) and says so — it never upscales a 360p video into a fake "4K". |
+| 5 | Search was a stub and returned HTTP 500 | New **video search engine** (`videoSearchService.js`): exactly **50 real videos = 30 top + 20 middle**, videos only, duration/sort filters, and graceful degradation instead of a 500. Raw TLS errors are no longer leaked to the browser. |
+| 6 | No SEO / AI analysis | New **SEO + AI Link Analyzer** page (`/seo-analyzer` + `POST /api/v1/seo/analyze`): real metadata, an honest download verdict (what works, what cannot, and why), plus meta title/description/slug/keywords/JSON-LD with live length checks. |
+| 7 | User dashboard showing other people's data | Verified strictly scoped: `listDownloadJobsForUser()` filters on `user_id` and returns `[]` for guests. No cross-user leak. |
+
+### New endpoints (V12)
+
+```
+GET    /api/v1/convert/capabilities      → is FFmpeg present, what can be produced
+POST   /api/v1/convert                   → { sourceUrl, mode, target, audioFormat } → job
+GET    /api/v1/convert/:id               → live progress / result
+DELETE /api/v1/convert/:id               → cancel
+GET    /api/v1/convert/:id/file          → download the finished file (Range + HEAD)
+GET    /api/v1/videos/search?q=…         → 50 videos (30 top + 20 middle)
+POST   /api/v1/seo/analyze               → { url } → verdict + SEO block
+```
+
+### FFmpeg (only needed for MP3 / re-encoding)
+
+The converter feature-detects FFmpeg at runtime — nothing crashes when it is
+missing, the panel simply explains it and delivers M4A instead.
+
+```bash
+# Windows (Chocolatey / winget)
+winget install Gyan.FFmpeg
+# or download a build and set the path in backend/.env
+FFMPEG_PATH=C:\\ffmpeg\\bin\\ffmpeg.exe
+```
+
+With FFmpeg installed, the panel unlocks real MP3 transcodes and the engine
+reports `reEncode: true`.
+
 ## 2. Pro-Security admin console
 
 ### URLs (all open the same console, same slug everywhere — localhost or live)
@@ -119,8 +158,8 @@ XAMPP: start **Apache + MySQL**, then the backend imports `ultradownloader_xampp
 ### Tests
 
 ```bash
-cd backend  && npm test     # 37 tests (live-extraction ones skip without internet)
-cd frontend && npm test     # 13 tests (live-site flow skips without internet)
+cd backend  && npm test     # 54 pass / 7 skip (live-network tests skip offline)
+cd frontend && npm test     # 15 pass / 1 skip (live-site flow skips offline)
 ```
 
 ---
@@ -137,7 +176,22 @@ cd frontend && npm test     # 13 tests (live-site flow skips without internet)
 
 ---
 
-## 7. Merge on GitHub
+## 7. Security note — `.env` is tracked
+
+`backend/.env` currently lives in the repository because the two cloud
+deployments (local + live) must share the same admin credentials. Before making
+the repository public, rotate the secrets and move them to the host's
+environment:
+
+```bash
+git rm --cached backend/.env
+echo "backend/.env" >> .gitignore
+```
+
+Then set the same keys in the hosting panel (Vercel/Railway/XAMPP). The app
+reads every secret from `process.env`, so nothing else needs to change.
+
+## 8. Merge on GitHub
 
 ```bash
 git checkout arena/4e341ea6-downloader312

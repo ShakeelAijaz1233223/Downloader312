@@ -220,9 +220,43 @@ export const UltraApi = {
     });
   },
 
-  searchVideos({ q = '', mode = 'video', sort = 'relevance' }) {
-    const qs = new URLSearchParams({ q, mode, sort }).toString();
-    return apiRequest(`/search?${qs}`);
+  // V12 video search engine — exactly 50 real videos (30 top + 20 middle)
+  searchVideos({ q = '', duration = 'any', sort = 'relevance', refresh = false }) {
+    const qs = new URLSearchParams({
+      q,
+      duration,
+      sort,
+      ...(refresh ? { refresh: '1' } : {}),
+    }).toString();
+    return apiRequest(`/videos/search?${qs}`);
+  },
+
+  // --- V12 AUTO-CONVERT ENGINE ---
+  getConvertCapabilities() {
+    return apiRequest('/convert/capabilities');
+  },
+  startConvert({ sourceUrl, title = '', target = 'max', audioFormat = 'mp3', mode = 'video' }) {
+    return apiRequest('/convert', {
+      method: 'POST',
+      body: JSON.stringify({ sourceUrl, title, target, audioFormat, mode }),
+    });
+  },
+  getConvertJob(id) {
+    return apiRequest(`/convert/${encodeURIComponent(id)}`);
+  },
+  cancelConvert(id) {
+    return apiRequest(`/convert/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+  listConvertJobs() {
+    return apiRequest('/convert');
+  },
+
+  // --- V12 SEO + AI ANALYSIS ---
+  analyzeSeo({ url, selectedPlatformId = '' }) {
+    return apiRequest('/seo/analyze', {
+      method: 'POST',
+      body: JSON.stringify({ url, selectedPlatformId }),
+    });
   },
 
   // Universal "anything" search: one keyword -> every engine + every platform

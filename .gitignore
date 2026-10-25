@@ -32,3 +32,6 @@ backend/storage/files/*.part
 *.local
 .DS_Store
 Thumbs.db
+
+# V12 converted media (regenerated on demand)
+backend/storage/converted/

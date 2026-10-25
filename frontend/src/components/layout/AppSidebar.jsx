@@ -10,6 +10,7 @@ import {
   Disc3,
   UserPlus,
   LogIn,
+  Sparkles,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
@@ -21,6 +22,7 @@ export function AppSidebar() {
     { to: '/', label: 'Home & Analyzer', icon: Home },
     { to: '/albums', label: 'Album & Mix Search', icon: Disc3 },
     { to: '/sites', label: 'Supported Sites', icon: Globe2 },
+    { to: '/seo-analyzer', label: 'SEO + AI Analyzer', icon: Sparkles },
     { to: '/player', label: 'Built-in Player', icon: PlaySquare },
     { to: '/downloads', label: 'Download History', icon: History, badge: downloadQueue.length },
     { to: '/favorites', label: 'Favorites', icon: Heart, badge: favorites.length },

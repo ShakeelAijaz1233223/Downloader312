@@ -190,31 +190,103 @@ export function StandalonePlayerPage() {
 // 3. LIVE VIDEO, AUDIO & LECTURE SEARCH ENGINE PAGE (/albums)
 // ============================================================================
 export function AlbumMixSearchPage() {
-  const { startManagedDownload, resolveAndStartDownload, showToast } = useApp();
+  const { resolveAndStartDownload, showToast } = useApp();
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('relevance');
+  const [duration, setDuration] = useState('any');
   const [busy, setBusy] = useState(false);
-  const [items, setItems] = useState([]);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
 
   const runSearch = async (e) => {
     e?.preventDefault?.();
-    if (!query.trim()) return;
+    const q = query.trim();
+    if (!q) return;
     setBusy(true);
+    setError('');
     try {
-      const res = await UltraApi.searchVideos({ q: query.trim(), sort });
-      setItems(res.items || []);
+      const res = await UltraApi.searchVideos({ q, duration, sort });
+      const data = res?.data && !res.top ? res.data : res;
+      const top = Array.isArray(data?.top) ? data.top : [];
+      const middle = Array.isArray(data?.middle) ? data.middle : [];
+      setResult({
+        top,
+        middle,
+        target: data?.target || 50,
+        message: data?.message || '',
+      });
+      if (!top.length && !middle.length) {
+        setError(data?.message || 'No videos found for that search.');
+      }
     } catch (err) {
-      showToast(err.message || 'Search failed', 'error');
+      setError(err.message || 'Search failed. Please try again.');
+      setResult(null);
     } finally {
       setBusy(false);
     }
   };
 
+  const renderCard = (item, rank) => (
+    <div
+      key={item.id || item.url}
+      className="rounded-2xl bg-white border border-slate-200 overflow-hidden shadow-sm flex flex-col justify-between hover:shadow-md hover:border-blue-300 transition"
+    >
+      <div className="relative aspect-video bg-slate-100">
+        {item.thumbnailUrl && (
+          <img
+            src={item.thumbnailUrl}
+            alt={item.title}
+            loading="lazy"
+            className="w-full h-full object-cover"
+          />
+        )}
+        <span className="absolute top-2 left-2 rounded-md bg-slate-900/85 text-white px-1.5 py-0.5 text-[10px] font-extrabold">
+          #{rank}
+        </span>
+        {item.durationText && (
+          <span className="absolute bottom-2 right-2 rounded bg-slate-900/85 text-white px-2 py-0.5 text-[11px] font-bold">
+            {item.durationText}
+          </span>
+        )}
+      </div>
+      <div className="p-4 space-y-3">
+        <div>
+          <h3 className="text-xs sm:text-sm font-bold text-slate-900 line-clamp-2">
+            {item.title}
+          </h3>
+          <p className="text-[11px] text-slate-500 mt-1">
+            {item.channelName || item.platformName}
+            {item.viewCountText ? ` · ${item.viewCountText}` : ''}
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => resolveAndStartDownload({ url: item.url })}
+            className="rounded-xl bg-blue-600 hover:bg-blue-700 py-2 text-[11px] font-bold text-white"
+          >
+            Best MP4
+          </button>
+          <button
+            type="button"
+            onClick={() => resolveAndStartDownload({ url: item.url, preferAudio: true })}
+            className="rounded-xl bg-indigo-600 hover:bg-indigo-700 py-2 text-[11px] font-bold text-white"
+          >
+            Audio track
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const top = result?.top || [];
+  const middle = result?.middle || [];
+
   return (
     <PageShell
-      title="Live Video, Audio & Mix"
-      highlight="Search Studio"
-      subtitle="Search public videos, music mixes and university lectures live, then save the real MP4 quality or extract the audio track."
+      title="Live Video & Audio"
+      highlight="Search Engine"
+      subtitle={`Type anything and get ${50} real videos — the 30 best matches first, then 20 more from deeper in the index. Videos only, nothing invented.`}
     >
       <form
         onSubmit={runSearch}
@@ -226,79 +298,93 @@ export function AlbumMixSearchPage() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search songs, naats, full albums, podcasts, or programming lectures..."
+            placeholder="Search songs, naats, albums, podcasts or lectures…"
             className="w-full bg-transparent text-sm text-slate-900 focus:outline-none"
           />
         </div>
+        <select
+          value={duration}
+          onChange={(e) => setDuration(e.target.value)}
+          className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-800"
+        >
+          <option value="any">Any length</option>
+          <option value="short">Under 4 minutes</option>
+          <option value="medium">4 – 20 minutes</option>
+          <option value="long">Over 20 minutes</option>
+        </select>
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value)}
           className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-800"
         >
-          <option value="relevance">Sort: Best Match</option>
-          <option value="views">Sort: Most Viewed</option>
-          <option value="duration_desc">Sort: Longest First</option>
+          <option value="relevance">Sort: Best match</option>
+          <option value="views">Sort: Most viewed</option>
+          <option value="date">Sort: Newest</option>
         </select>
         <button
           type="submit"
           disabled={busy}
-          className="rounded-xl bg-blue-600 hover:bg-blue-700 px-6 py-2.5 text-xs sm:text-sm font-extrabold text-white"
+          className="rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 px-6 py-2.5 text-xs sm:text-sm font-extrabold text-white"
         >
-          {busy ? 'Searching...' : 'Search Live'}
+          {busy ? 'Searching…' : 'Search 50 videos'}
         </button>
       </form>
 
-      {items.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-          {items.map((item) => (
-            <div
-              key={item.id || item.url}
-              className="rounded-2xl bg-white border border-slate-200 overflow-hidden shadow-sm flex flex-col justify-between"
-            >
-              <div className="relative aspect-video bg-slate-100">
-                {item.thumbnailUrl && (
-                  <img
-                    src={item.thumbnailUrl}
-                    alt={item.title}
-                    loading="lazy"
-                    className="w-full h-full object-cover"
-                  />
-                )}
-                <span className="absolute bottom-2 right-2 rounded bg-slate-900/85 text-white px-2 py-0.5 text-[11px] font-bold">
-                  {item.durationText}
-                </span>
-              </div>
-              <div className="p-4 space-y-3">
-                <div>
-                  <h3 className="text-xs sm:text-sm font-bold text-slate-900 line-clamp-2">
-                    {item.title}
-                  </h3>
-                  <p className="text-[11px] text-slate-500 mt-1">{item.channelName}</p>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      resolveAndStartDownload({ url: item.url })
-                    }
-                    className="rounded-xl bg-blue-600 hover:bg-blue-700 py-2 text-[11px] font-bold text-white"
-                  >
-                    MP4 Video
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      resolveAndStartDownload({ url: item.url })
-                    }
-                    className="rounded-xl bg-indigo-600 hover:bg-indigo-700 py-2 text-[11px] font-bold text-white"
-                  >
-                    320k MP3
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
+      {busy && (
+        <p className="text-xs font-semibold text-slate-500 mb-5">
+          Searching live video indexes…
+        </p>
+      )}
+
+      {error && (
+        <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">
+          {error}
+          <button
+            type="button"
+            onClick={() => runSearch()}
+            className="ml-3 rounded-lg bg-amber-600 px-3 py-1 text-[11px] font-bold text-white"
+          >
+            Try again
+          </button>
         </div>
+      )}
+
+      {top.length > 0 && (
+        <>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-extrabold text-slate-900">
+              Top {top.length} results
+            </h2>
+            <span className="text-[11px] font-bold text-slate-500">
+              best match
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4 mb-9">
+            {top.map((item, i) => renderCard(item, i + 1))}
+          </div>
+        </>
+      )}
+
+      {middle.length > 0 && (
+        <>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-extrabold text-slate-900">
+              Middle {middle.length} results
+            </h2>
+            <span className="text-[11px] font-bold text-slate-500">
+              deeper in the index
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {middle.map((item, i) => renderCard(item, top.length + i + 1))}
+          </div>
+        </>
+      )}
+
+      {result && !top.length && !middle.length && !busy && !error && (
+        <p className="text-xs font-semibold text-slate-500">
+          No videos were returned for “{query}”.
+        </p>
       )}
     </PageShell>
   );
@@ -1124,6 +1210,212 @@ export function LegalPage() {
           Hardware DRM-protected commercial subscription streams (Widevine / FairPlay / PlayReady) are strictly respected and never circumvented. Users are responsible for complying with applicable copyright rules and platform terms in their jurisdiction.
         </p>
       </div>
+    </PageShell>
+  );
+}
+
+// ============================================================================
+// 9. SEO + AI ANALYSIS PAGE (/seo-analyzer)
+//
+// Paste any video URL → real metadata, an honest "can this even be downloaded"
+// verdict (including what will fail and why), and a ready-to-use SEO block.
+// Every value is derived from the real analysed media, never invented.
+// ============================================================================
+export function SeoAnalyzerPage() {
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+  const [copied, setCopied] = useState('');
+
+  const run = async (e) => {
+    e?.preventDefault?.();
+    const target = url.trim();
+    if (!target) return;
+    setBusy(true);
+    setError('');
+    try {
+      const res = await UltraApi.analyzeSeo({ url: target });
+      const data = res?.data && res.data.verdict ? res.data : res;
+      setResult(data);
+    } catch (err) {
+      setError(err.message || 'Could not analyse that link.');
+      setResult(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = (value, key) => {
+    if (!value) return;
+    navigator.clipboard?.writeText(value).catch(() => {});
+    setCopied(key);
+    setTimeout(() => setCopied(''), 1600);
+  };
+
+  const verdict = result?.verdict;
+  const seo = result?.seo;
+
+  return (
+    <PageShell
+      title="SEO + AI"
+      highlight="Link Analyzer"
+      subtitle="Paste any video link. Get the real metadata, an honest download verdict (what works, what cannot work and why), and a complete SEO block you can paste straight into the page."
+    >
+      <form
+        onSubmit={run}
+        className="w-full rounded-2xl bg-slate-50 border border-slate-200 p-4 flex flex-col md:flex-row gap-3 mb-7"
+      >
+        <div className="flex-1 flex items-center gap-2 rounded-xl bg-white border border-slate-300 px-3.5 py-2.5">
+          <Search size={17} className="text-blue-600 shrink-0" />
+          <input
+            type="text"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://www.youtube.com/watch?v=…  or any supported share link"
+            className="w-full bg-transparent text-sm text-slate-900 focus:outline-none"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 px-6 py-2.5 text-xs sm:text-sm font-extrabold text-white"
+        >
+          {busy ? 'Analysing…' : 'Analyse link'}
+        </button>
+      </form>
+
+      {error && (
+        <div className="mb-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-800">
+          {error}
+        </div>
+      )}
+
+      {verdict && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
+            <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+              <Gauge size={16} className="text-blue-600" /> Download verdict
+            </h2>
+
+            <div
+              className={`rounded-xl px-3.5 py-2.5 text-xs font-bold ${
+                verdict.downloadable
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                  : 'bg-rose-50 text-rose-800 border border-rose-200'
+              }`}
+            >
+              {verdict.downloadable
+                ? 'Yes — this link can be downloaded.'
+                : 'No — this link cannot be downloaded right now.'}
+            </div>
+
+            <dl className="grid grid-cols-2 gap-2 text-[11px]">
+              <div className="rounded-lg bg-slate-50 px-3 py-2">
+                <dt className="font-bold text-slate-500 uppercase text-[9px]">Best real quality</dt>
+                <dd className="font-extrabold text-slate-900">{verdict.bestQuality || '—'}</dd>
+              </div>
+              <div className="rounded-lg bg-slate-50 px-3 py-2">
+                <dt className="font-bold text-slate-500 uppercase text-[9px]">Best with sound</dt>
+                <dd className="font-extrabold text-slate-900">
+                  {verdict.bestQualityWithSound || '—'}
+                </dd>
+              </div>
+              <div className="rounded-lg bg-slate-50 px-3 py-2">
+                <dt className="font-bold text-slate-500 uppercase text-[9px]">Video streams</dt>
+                <dd className="font-extrabold text-slate-900">
+                  {verdict.counts.videoWithSound} with sound · {verdict.counts.videoOnly} muted
+                </dd>
+              </div>
+              <div className="rounded-lg bg-slate-50 px-3 py-2">
+                <dt className="font-bold text-slate-500 uppercase text-[9px]">Audio streams</dt>
+                <dd className="font-extrabold text-slate-900">{verdict.counts.audioOnly}</dd>
+              </div>
+            </dl>
+
+            {verdict.realQualities.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {verdict.realQualities.map((q) => (
+                  <span
+                    key={q}
+                    className="rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 text-[10px] font-extrabold text-blue-700"
+                  >
+                    {q}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {verdict.notes.map((note, i) => (
+              <p key={i} className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                {note}
+              </p>
+            ))}
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
+            <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+              <Zap size={16} className="text-indigo-600" /> SEO block
+            </h2>
+
+            {!seo && (
+              <p className="text-[11px] text-slate-500">
+                SEO can only be generated from real metadata, and this link did not return any.
+                Fix the download problem above first.
+              </p>
+            )}
+
+            {seo && (
+              <>
+                {[
+                  ['Meta title', seo.metaTitle, 'title'],
+                  ['Meta description', seo.metaDescription, 'desc'],
+                  ['Slug', seo.slug, 'slug'],
+                  ['Keywords', seo.keywords.join(', '), 'kw'],
+                ].map(([label, value, key]) => (
+                  <div key={key} className="rounded-lg bg-slate-50 px-3 py-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-extrabold uppercase text-slate-500">
+                        {label}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => copy(value, key)}
+                        className="text-[10px] font-bold text-blue-700"
+                      >
+                        {copied === key ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                    <p className="text-[11px] font-semibold text-slate-800 break-words">{value}</p>
+                  </div>
+                ))}
+
+                <div className="space-y-1.5">
+                  {seo.checks.map((check) => (
+                    <div
+                      key={check.label}
+                      className="flex items-center justify-between text-[10px] font-bold"
+                    >
+                      <span className="text-slate-600">{check.label}</span>
+                      <span className={check.ok ? 'text-emerald-700' : 'text-amber-700'}>
+                        {check.value} ({check.target})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => copy(JSON.stringify(seo.jsonLd, null, 2), 'jsonld')}
+                  className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-extrabold text-indigo-700"
+                >
+                  {copied === 'jsonld' ? 'JSON-LD copied' : 'Copy JSON-LD VideoObject'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </PageShell>
   );
 }

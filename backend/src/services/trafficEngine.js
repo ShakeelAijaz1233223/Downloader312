@@ -202,6 +202,9 @@ export const DEFAULT_ENGINE_PREFERENCES = {
   autoUnwrapIteraplay: true,
   browserCookieSource: 'auto', // 'auto' | 'chrome' | 'edge' | 'firefox' | 'brave' | 'none'
   defaultVideoQuality: 'auto', // the engine picks the best REAL quality per video
+  autoConvert: true, // V12: server-side auto-convert is ON by default
+  autoConvertTarget: 'max', // 'max' = best REAL quality the source has (never an upscale)
+  autoConvertAudioFormat: 'mp3', // MP3 when FFmpeg exists, otherwise the real M4A track
   showAdultVaultTab: false, // permanently off: family-safe build
   autoCleanTempHours: 12,
 };
@@ -256,6 +259,20 @@ export function updateRuntimeEnginePreferences(patch = {}, { fromStartupHydratio
   }
   if (patch.defaultVideoQuality !== undefined) {
     runtimeEnginePreferences.defaultVideoQuality = String(patch.defaultVideoQuality || 'auto');
+  }
+  if (patch.autoConvert !== undefined) {
+    runtimeEnginePreferences.autoConvert = Boolean(patch.autoConvert);
+  }
+  if (patch.autoConvertTarget !== undefined) {
+    const allowed = ['max', '2160p', '1440p', '1080p', '720p', '480p'];
+    const value = String(patch.autoConvertTarget || 'max');
+    runtimeEnginePreferences.autoConvertTarget = allowed.includes(value) ? value : 'max';
+  }
+  if (patch.autoConvertAudioFormat !== undefined) {
+    const value = String(patch.autoConvertAudioFormat || 'mp3');
+    runtimeEnginePreferences.autoConvertAudioFormat = ['mp3', 'm4a'].includes(value)
+      ? value
+      : 'mp3';
   }
   if (patch.showAdultVaultTab !== undefined) {
     // Locked off — 18+ content is not part of this product.

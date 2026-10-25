@@ -120,6 +120,7 @@ export async function createDownloadTicket({
   platformId = '',
   user = null,
   originBaseUrl = '',
+  refreshSource = false,
 }) {
   const requestedFileId = String(fileId || '').trim();
   const requestedUrl = String(url || '').trim();
@@ -155,7 +156,22 @@ export async function createDownloadTicket({
       sizeBytes: entry.sizeBytes,
     };
   } else {
-    const parsed = await assertSafeOutboundUrl(requestedUrl, { performDnsCheck: true });
+    // `refreshSource` is what the Retry button sends: instead of trusting a CDN
+    // URL that may have expired, re-resolve the ORIGINAL page and mint a ticket
+    // around a link that is seconds old. This is the real cure for
+    // "link modified" / "File wasn't available on site".
+    let effectiveUrl = requestedUrl;
+    if (refreshSource) {
+      const healed = await refreshRemoteTarget({
+        sourceUrl,
+        formatId,
+        qualityKey,
+        fileName,
+      }).catch(() => null);
+      if (healed?.upstreamUrl) effectiveUrl = healed.upstreamUrl;
+    }
+
+    const parsed = await assertSafeOutboundUrl(effectiveUrl, { performDnsCheck: true });
     const guessedExt = extensionOf(fileName) || extensionOf(parsed.pathname) || 'mp4';
     const finalName = sanitizeDownloadFileName(
       fileName || `UltraDownloader_Download.${guessedExt}`,
@@ -376,7 +392,7 @@ function looksLikeHlsPlaylist(targetUrl, mimeType = '') {
  * format the user picked. This is what makes a 403 "expired signature" heal
  * itself instead of showing "File wasn't available on site".
  */
-async function refreshRemoteTarget(payload) {
+export async function refreshRemoteTarget(payload) {
   const sourceUrl = String(payload?.sourceUrl || '').trim();
   if (!/^https?:\/\//i.test(sourceUrl)) return null;
 
@@ -405,21 +421,27 @@ async function refreshRemoteTarget(payload) {
   const usable = groups.filter((s) => /^https?:\/\//i.test(String(s?.directCdnUrl || '')));
   if (!usable.length) return null;
 
-  const sameFormat =
-    usable.find(
-      (s) =>
-        (payload.formatId && s.formatId === payload.formatId) ||
-        (payload.qualityKey && s.qualityKey === payload.qualityKey)
-    ) || null;
+  // Ranked candidates: exactly the same format first, then the same height, then
+  // everything else the source really returned. Trying several candidates is
+  // what makes a dead signature heal instead of showing an error page.
+  const sameFormat = usable.filter(
+    (s) =>
+      (payload.formatId && s.formatId === payload.formatId) ||
+      (payload.qualityKey && s.qualityKey === payload.qualityKey)
+  );
 
-  const best =
-    sameFormat ||
-    usable.find((s) => s.hasAudio && s.hasVideo) ||
-    usable[0];
+  const ranked = [...sameFormat, ...usable].filter(
+    (s, idx, arr) => arr.findIndex((x) => x.directCdnUrl === s.directCdnUrl) === idx
+  );
+
+  const best = ranked[0];
+  if (!best) return null;
 
   return {
     upstreamUrl: String(best.directCdnUrl),
+    candidates: ranked.map((s) => String(s.directCdnUrl)).slice(0, 6),
     fileName: payload.fileName || undefined,
+    analysis,
   };
 }
 
@@ -472,20 +494,39 @@ async function streamRemoteFile(req, res, payload) {
   let upstream = opened?.upstream;
 
   // ---- SELF-HEALING LINK: expired / rotated CDN signature ------------------
+  // Up to two rounds: first try the freshly re-resolved candidates one by one,
+  // then give up with a precise, retryable error instead of a generic one.
   const staleStatus = upstream && !upstream.networkError ? upstream.status : 0;
-  if (!upstream || upstream.networkError || [401, 403, 404, 410, 451].includes(staleStatus)) {
+  const isStale =
+    !upstream ||
+    upstream.networkError ||
+    [401, 403, 404, 410, 451, 429].includes(staleStatus);
+
+  if (isStale) {
     const refreshed = await refreshRemoteTarget(payload).catch(() => null);
-    if (refreshed?.upstreamUrl && refreshed.upstreamUrl !== payload.upstreamUrl) {
-      payload.upstreamUrl = refreshed.upstreamUrl;
-      // Persist the healed link so Retry / resume also works.
-      for (const entry of TICKET_STORE.values()) {
-        if (entry.payload.jti === payload.jti) {
-          entry.payload.upstreamUrl = refreshed.upstreamUrl;
-          break;
-        }
-      }
+    const candidates = (refreshed?.candidates || []).filter(
+      (url) => url && url !== payload.upstreamUrl
+    );
+
+    for (const candidate of candidates) {
+      payload.upstreamUrl = candidate;
       opened = await openUpstream(payload, req);
       upstream = opened?.upstream;
+      if (upstream && !upstream.networkError && (upstream.ok || upstream.status === 206)) {
+        // Persist the healed link so Retry / resume also works.
+        for (const entry of TICKET_STORE.values()) {
+          if (entry.payload.jti === payload.jti) {
+            entry.payload.upstreamUrl = candidate;
+            break;
+          }
+        }
+        break;
+      }
+      try {
+        upstream?.body?.cancel?.();
+      } catch {
+        /* ignore */
+      }
     }
   }
 
